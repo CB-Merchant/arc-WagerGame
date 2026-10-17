@@ -1,5 +1,44 @@
 import { createServer } from 'http'
+import { readFileSync, existsSync } from 'fs'
+import { join, extname } from 'path'
 import { WebSocketServer, WebSocket } from 'ws'
+
+const DIST_DIR = join(import.meta.dirname ?? process.cwd(), '..', 'dist')
+const SERVE_STATIC = existsSync(DIST_DIR)
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html',
+  '.js':   'application/javascript',
+  '.css':  'text/css',
+  '.json': 'application/json',
+  '.png':  'image/png',
+  '.svg':  'image/svg+xml',
+  '.ico':  'image/x-icon',
+  '.woff2':'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf':  'font/ttf',
+}
+
+function serveStatic(url: string, res: import('http').ServerResponse): boolean {
+  if (!SERVE_STATIC) return false
+  // Strip query string
+  const pathname = url.split('?')[0]
+  let filePath = join(DIST_DIR, pathname)
+  if (!existsSync(filePath) || !filePath.includes('.')) {
+    filePath = join(DIST_DIR, 'index.html') // SPA fallback
+  }
+  if (!existsSync(filePath)) return false
+  const ext = extname(filePath)
+  const mime = MIME[ext] ?? 'application/octet-stream'
+  try {
+    const content = readFileSync(filePath)
+    res.writeHead(200, { 'Content-Type': mime })
+    res.end(content)
+    return true
+  } catch {
+    return false
+  }
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -460,6 +499,9 @@ function handleHTTP(req: import('http').IncomingMessage, res: import('http').Ser
     return
   }
 
+  // Serve built frontend files (SPA fallback)
+  if (serveStatic(url, res)) return
+
   res.writeHead(404)
   res.end()
 }
@@ -499,7 +541,7 @@ wss.on('connection', (ws) => {
   })
 })
 
-const PORT = 3001
+const PORT = Number(process.env.PORT ?? 7860)
 httpServer.listen(PORT, () => {
   console.log(`WagerGame server running on port ${PORT}`)
 })
