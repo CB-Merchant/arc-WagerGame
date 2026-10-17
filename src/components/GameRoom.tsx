@@ -104,16 +104,19 @@ export function GameRoom({
   const processedJoin = useRef<string | undefined>(undefined)
 
   // Derive phase transitions from wagmi state
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (approveHash && approveSuccess && processedApprove.current !== approveHash) {
       processedApprove.current = approveHash
       setTxPhase('approved')
     }
-  })
+  }, [approveHash, approveSuccess])
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (createHash && createSuccess && createReceipt && processedCreate.current !== createHash) {
       processedCreate.current = createHash
+      // Notify WS backend — best-effort, not required for code display
       send({
         type: 'create_room',
         roomId,
@@ -123,16 +126,18 @@ export function GameRoom({
         isPrivate,
         salt: roomId,
       })
+      // Always transition locally so the code shows even without a WS server
       setTxPhase('waiting_opponent')
     }
-  })
+  }, [createHash, createSuccess, createReceipt])
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (joinHash && joinSuccess && joinReceipt && processedJoin.current !== joinHash) {
       processedJoin.current = joinHash
       send({ type: 'player_joined', roomId, address })
     }
-  })
+  }, [joinHash, joinSuccess, joinReceipt])
 
   const handleApprove = useCallback(() => {
     if (isWrongChain) { toast.error('Switch to Arc Testnet first'); return }
@@ -268,14 +273,8 @@ export function GameRoom({
         )}
 
         {isPlayer1 && txPhase === 'creating_room' && (
-          <motion.div key="creating" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="rounded-2xl p-4 text-center" style={{ background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(16px)', border: '1.5px solid rgba(255,255,255,0.8)' }}>
-            <div className="mx-auto mb-2 h-8 w-8 animate-spin rounded-full border-2 border-transparent" style={{ borderTopColor: 'var(--accent)' }} />
-            <p className="font-semibold" style={{ color: 'var(--ink)' }}>Waiting for confirmation...</p>
-          </motion.div>
-        )}
-
-        {isPlayer1 && txPhase === 'waiting_opponent' && (
-          <motion.div key="waiting" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-3">
+          <motion.div key="creating" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
+            {/* Show code early for private rooms so player can share while tx confirms */}
             {isPrivate && (
               <div className="rounded-2xl p-4" style={{ background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(16px)', border: '1.5px solid rgba(255,255,255,0.8)' }}>
                 <p className="mb-2 text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--muted)' }}>Your Room Code</p>
@@ -290,9 +289,41 @@ export function GameRoom({
                     {copied ? 'Copied!' : 'Copy'}
                   </button>
                 </div>
-                <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>Share this code with your friend to let them join</p>
+                <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>Share this with your friend — you can copy now while the transaction confirms</p>
               </div>
             )}
+            <div className="rounded-2xl p-4 text-center" style={{ background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(16px)', border: '1.5px solid rgba(255,255,255,0.8)' }}>
+              <div className="mx-auto mb-2 h-8 w-8 animate-spin rounded-full border-2 border-transparent" style={{ borderTopColor: 'var(--accent)' }} />
+              <p className="font-semibold" style={{ color: 'var(--ink)' }}>Waiting for confirmation...</p>
+              <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>Transaction is being confirmed on Arc Testnet</p>
+            </div>
+          </motion.div>
+        )}
+
+        {isPlayer1 && txPhase === 'waiting_opponent' && (
+          <motion.div key="waiting" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-3">
+            {/* Always show room code once confirmed — private AND public so player can share/track */}
+            <div className="rounded-2xl p-4" style={{ background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(16px)', border: '1.5px solid rgba(255,255,255,0.8)' }}>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--muted)' }}>
+                {isPrivate ? 'Your Room Code' : 'Room ID'}
+              </p>
+              <div className="flex items-center gap-2">
+                <p className="mono flex-1 overflow-hidden text-ellipsis text-xs" style={{ color: 'var(--ink)' }}>{roomId}</p>
+                <button
+                  onClick={copyCode}
+                  className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold"
+                  style={{ background: 'var(--accent)', color: 'white' }}
+                >
+                  {copied ? <CheckCircle size={14} /> : <Copy size={14} />}
+                  {copied ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+              <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>
+                {isPrivate
+                  ? 'Share this code with your friend to let them join'
+                  : 'Waiting for a random opponent to match with you'}
+              </p>
+            </div>
             <div className="flex items-center justify-center gap-2 rounded-2xl py-4" style={{ background: 'var(--surface-muted)' }}>
               <div className="h-2.5 w-2.5 animate-pulse rounded-full" style={{ background: 'var(--accent)' }} />
               <p className="text-sm font-medium" style={{ color: 'var(--ink)' }}>Waiting for opponent to join...</p>
