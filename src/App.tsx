@@ -8,6 +8,7 @@ import { GameLobby } from './components/GameLobby'
 import { MatchmakingScreen } from './components/MatchmakingScreen'
 import { GameRoom } from './components/GameRoom'
 import { UsdcBalance } from './components/UsdcBalance'
+import { useOnlinePlayers } from './hooks/useGameServer'
 import type { GameType } from './hooks/useGameServer'
 
 const ARC_TESTNET_CHAIN_ID = 5042002
@@ -29,6 +30,7 @@ export default function App() {
   const { address, chainId, isConnected } = useAccount()
   const { switchChain } = useSwitchChain()
   const [view, setView] = useState<AppView>({ type: 'lobby' })
+  const onlineCount = useOnlinePlayers()
 
   const handlePublicMatch = useCallback((gameType: GameType, wagerAmount: string) => {
     if (!address) { toast.error('Connect your wallet first'); return }
@@ -123,16 +125,34 @@ export default function App() {
           <ConnectKitButton />
         </header>
 
-        {/* Wallet balance strip */}
-        {isConnected && address && chainId === ARC_TESTNET_CHAIN_ID && (
-          <motion.div
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-4"
+        {/* Balance + online strip */}
+        <motion.div
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-4 flex items-center gap-2"
+        >
+          {isConnected && address && (
+            <UsdcBalance address={address} chainId={chainId ?? 0} />
+          )}
+          {/* Online player count — always shown */}
+          <div
+            className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 ml-auto"
+            style={{
+              background: 'rgba(255,255,255,0.72)',
+              backdropFilter: 'blur(12px)',
+              border: '1.5px solid rgba(255,255,255,0.8)',
+            }}
           >
-            <UsdcBalance address={address} chainId={chainId} />
-          </motion.div>
-        )}
+            <div
+              className="h-1.5 w-1.5 rounded-full"
+              style={{ background: onlineCount !== null ? '#22c55e' : '#d1d5db', animation: onlineCount !== null ? 'pulse 2s infinite' : 'none' }}
+            />
+            <span className="text-xs font-medium" style={{ color: 'var(--muted)' }}>Online</span>
+            <span className="text-sm font-bold" style={{ color: 'var(--ink)' }}>
+              {onlineCount !== null ? onlineCount : '—'}
+            </span>
+          </div>
+        </motion.div>
 
         {/* Chain warning */}
         {isConnected && chainId !== ARC_TESTNET_CHAIN_ID && (

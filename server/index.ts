@@ -176,9 +176,18 @@ function rpsResult(a: string, b: string): 'win' | 'lose' | 'draw' {
 
 // ─── Message handlers ─────────────────────────────────────────────────────────
 
+function broadcastOnlineCount() {
+  const count = connections.size
+  const msg = { type: 'online_count', count }
+  for (const ws of connections.values()) send(ws, msg)
+}
+
 function handleRegister(ws: WebSocket, data: { address: string }) {
   connections.set(data.address.toLowerCase(), ws)
   send(ws, { type: 'registered', address: data.address.toLowerCase() })
+  // Tell the new client their own count immediately, then broadcast to all
+  send(ws, { type: 'online_count', count: connections.size })
+  broadcastOnlineCount()
 }
 
 function handleGetRooms(_ws: WebSocket, _data: unknown) {
@@ -486,6 +495,7 @@ wss.on('connection', (ws) => {
       connections.delete(clientAddress)
       removeFromQueue(clientAddress)
     }
+    broadcastOnlineCount()
   })
 })
 

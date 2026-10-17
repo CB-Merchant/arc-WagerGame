@@ -58,6 +58,30 @@ export function useGameServer(address: string | undefined) {
   return { send, on, connected }
 }
 
+export function useOnlinePlayers() {
+  const [count, setCount] = useState<number | null>(null)
+  const ws = useRef<WebSocket | null>(null)
+
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const socket = new WebSocket(`${protocol}//${window.location.host}/ws`)
+    ws.current = socket
+
+    socket.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data as string) as Record<string, unknown>
+        if (msg.type === 'online_count') setCount(msg.count as number)
+      } catch { /* ignore */ }
+    }
+
+    socket.onerror = () => socket.close()
+
+    return () => socket.close()
+  }, [])
+
+  return count
+}
+
 export function useOpenRooms() {
   const [rooms, setRooms] = useState<Room[]>([])
   useEffect(() => {
