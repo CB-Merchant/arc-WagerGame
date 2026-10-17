@@ -7,6 +7,7 @@ import { keccak256, encodePacked } from 'viem'
 import { GameLobby } from './components/GameLobby'
 import { MatchmakingScreen } from './components/MatchmakingScreen'
 import { GameRoom } from './components/GameRoom'
+import { UsdcBalance } from './components/UsdcBalance'
 import type { GameType } from './hooks/useGameServer'
 
 const ARC_TESTNET_CHAIN_ID = 5042002
@@ -114,13 +115,24 @@ export default function App() {
 
       <div className="relative z-10 mx-auto max-w-md px-4 pb-10 pt-6">
         {/* Header */}
-        <header className="mb-6 flex items-center justify-between">
+        <header className="mb-4 flex items-center justify-between">
           <div>
             <h1 className="display text-2xl font-bold tracking-tight" style={{ color: 'var(--ink)' }}>WagerGame</h1>
             <p className="text-xs" style={{ color: 'var(--muted)' }}>Play. Wager. Win USDC.</p>
           </div>
           <ConnectKitButton />
         </header>
+
+        {/* Wallet balance strip */}
+        {isConnected && address && chainId === ARC_TESTNET_CHAIN_ID && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4"
+          >
+            <UsdcBalance address={address} chainId={chainId} />
+          </motion.div>
+        )}
 
         {/* Chain warning */}
         {isConnected && chainId !== ARC_TESTNET_CHAIN_ID && (
