@@ -12,6 +12,26 @@ USDC PvP wager game on Arc Testnet. Players choose a game (Trivia, RPS, Number D
 
 After deploying, set `VITE_WAGER_CONTRACT=<address>` in `.env`.
 
+## Mainnet Pre-Deploy Checklist
+
+Before deploying to Arc Mainnet, complete every item below:
+
+1. **Transfer contract ownership** — immediately after deploy, call `transferOwnership(<your-wallet>)` from the deployer. The current owner can change fees (up to 10%), swap the resolver, and redirect the fee recipient.
+
+2. **Replace the resolver with a wallet you control** — the resolver decides who wins every game. Use a wallet you hold the private key for, or ideally a multi-sig (e.g. Safe). The current resolver is the Arc Studio platform deployer (`0x5B12Ce46C7194aD57d143bC22847224047b1Ef42`) which is not suitable for mainnet.
+
+3. **Set feeRecipient to your own address** — fees currently go to the platform deployer wallet. Pass your own address in the constructor or call `setFeeRecipient` after deploy.
+
+4. **Add a dispute window or multi-sig resolver** — game outcomes are reported off-chain with no on-chain verification. For real-money games, consider a timelock on `resolveGame` or a multi-sig that requires 2-of-3 signatures before funds are released.
+
+5. **Paginate `getOpenPublicRooms`** — the public room array is unbounded. Add an offset/limit view function before launching to avoid gas issues at scale.
+
+6. **Independent security audit** — get the contract audited by a third-party firm before handling real funds. The in-session review covered common patterns but is not a substitute for a full audit.
+
+7. **Run full tests on testnet first** — play end-to-end games on Arc Testnet with real wallets, verify the resolver flow, timeout refunds, and fee accounting before going live.
+
+8. **Update `VITE_WAGER_CONTRACT` and redeploy Vercel** — swap in the mainnet address and redeploy the frontend after the mainnet contract is live.
+
 ## Constructor Args (WagerGame)
 1. `usdcToken` = `0x3600000000000000000000000000000000000000`
 2. `resolver` = platform deployer wallet (or a trusted server wallet)
