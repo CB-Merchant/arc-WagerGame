@@ -5,12 +5,12 @@ import { toast } from 'sonner'
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract } from 'wagmi'
 import { erc20Abi, parseUnits } from 'viem'
 import { getUsdc, buildTxExplorerUrl } from '@/onchain-facts'
-import { useGameServer } from '../hooks/useGameServer'
+import { useAblyRoom } from '../hooks/useAblyGame'
 import { TriviaGame } from './games/TriviaGame'
 import { RPSGame } from './games/RPSGame'
 import { NumberGuessGame } from './games/NumberGuessGame'
 import { TicTacToeGame } from './games/TicTacToeGame'
-import type { Room, GameType } from '../hooks/useGameServer'
+import type { GameType } from '../hooks/useGameServer'
 import WAGER_ARTIFACT from '../../contracts/out/WagerGame.sol/WagerGame.json'
 
 const ARC_TESTNET_CHAIN_ID = 5042002
@@ -38,8 +38,7 @@ type TxPhase = 'idle' | 'approving' | 'approved' | 'creating_room' | 'waiting_op
 export function GameRoom({
   address, chainId, roomId, gameType, wagerAmount, isPlayer1, opponentAddress, isPrivate, onLeave
 }: GameRoomProps) {
-  const { send, on } = useGameServer(address)
-  const [room, setRoom] = useState<Room | null>(null)
+  const { gameState, roomStatus, winner, sendAction } = useAblyRoom(roomId, address)
   const [txPhase, setTxPhase] = useState<TxPhase>('idle')
   const [copied, setCopied] = useState(false)
 
@@ -69,34 +68,11 @@ export function GameRoom({
   const { writeContract: joinRoomOnChain, data: joinHash, isPending: isJoining } = useWriteContract()
   const { isSuccess: joinSuccess, data: joinReceipt } = useWaitForTransactionReceipt({ hash: joinHash })
 
-  // Register with WS and listen
+  // Sync Ably room status to txPhase
   useEffect(() => {
-    if (!address) return
-    send({ type: 'register', address })
-    send({ type: 'join_room', roomId, address })
-
-    const unsub1 = on('room_created', (msg) => {
-      setRoom(msg.room as Room)
-      setTxPhase('waiting_opponent')
-    })
-    const unsub2 = on('room_state', (msg) => {
-      setRoom(msg.room as Room)
-      if ((msg.room as Room).status === 'ACTIVE') setTxPhase('game_active')
-    })
-    const unsub3 = on('game_started', (msg) => {
-      setRoom(msg.room as Room)
-      setTxPhase('game_active')
-    })
-    const unsub4 = on('game_state', (msg) => {
-      setRoom(msg.room as Room)
-    })
-    const unsub5 = on('game_finished', (msg) => {
-      setRoom(msg.room as Room)
-      setTxPhase('game_over')
-    })
-
-    return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5() }
-  }, [address, roomId, send, on])
+    if (roomStatus === 'ACTIVE' && txPhase === 'waiting_opponent') setTxPhase('game_active')
+    if (roomStatus === 'FINISHED') setTxPhase('game_over')
+  }, [roomStatus, txPhase])
 
   // Track processed tx hashes to avoid re-triggering
   const processedApprove = useRef<string | undefined>(undefined)
@@ -112,31 +88,31 @@ export function GameRoom({
     }
   }, [approveHash, approveSuccess])
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (createHash && createSuccess && createReceipt && processedCreate.current !== createHash) {
       processedCreate.current = createHash
-      // Notify WS backend — best-effort, not required for code display
-      send({
-        type: 'create_room',
-        roomId,
-        address,
-        gameType,
-        wagerAmount,
-        isPrivate,
-        salt: roomId,
+      // Notify Ably backend — best-effort
+      void fetch('/api/create-room', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gameType, wagerAmount, isPrivate, player1: address, onChainRoomId: roomId }),
       })
-      // Always transition locally so the code shows even without a WS server
       setTxPhase('waiting_opponent')
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createHash, createSuccess, createReceipt])
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (joinHash && joinSuccess && joinReceipt && processedJoin.current !== joinHash) {
       processedJoin.current = joinHash
-      send({ type: 'player_joined', roomId, address })
+      void fetch('/api/join-room', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        body: JSON.stringify({ roomId, player2: address }),
+      })
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joinHash, joinSuccess, joinReceipt])
 
   const handleApprove = useCallback(() => {
@@ -181,8 +157,8 @@ export function GameRoom({
   }, [isWrongChain, joinRoomOnChain, roomId])
 
   const handleGameAction = useCallback((action: string, payload: unknown) => {
-    send({ type: 'game_action', roomId, address, action, payload })
-  }, [send, roomId, address])
+    void sendAction(action, payload as Record<string, unknown>)
+  }, [sendAction])
 
   const copyCode = () => {
     void navigator.clipboard.writeText(roomId)
@@ -200,7 +176,7 @@ export function GameRoom({
     )
   }
 
-  const gs = room?.gameState
+  const gs = gameState as Record<string, unknown> | null
   const opponent = opponentAddress
 
   return (
@@ -368,43 +344,31 @@ export function GameRoom({
         {/* Active Game */}
         {txPhase === 'game_active' && gs && (
           <motion.div key="game" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            {gs.type === 'TRIVIA' && (
-              <TriviaGame
-                state={gs}
-                myAddress={address}
-                opponentAddress={opponent}
-                onAnswer={(i) => handleGameAction('answer', { answerIndex: i })}
-              />
+            {gs['type'] === 'TRIVIA' && (
+              /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment */
+              <TriviaGame state={gs as any} myAddress={address} opponentAddress={opponent} onAnswer={(i) => handleGameAction('answer', { answerIndex: i })} />
+              /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment */
             )}
-            {gs.type === 'RPS' && (
-              <RPSGame
-                state={gs}
-                myAddress={address}
-                opponentAddress={opponent}
-                onChoice={(c) => handleGameAction('choice', { choice: c })}
-              />
+            {gs['type'] === 'RPS' && (
+              /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment */
+              <RPSGame state={gs as any} myAddress={address} opponentAddress={opponent} onChoice={(c) => handleGameAction('choice', { choice: c })} />
+              /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment */
             )}
-            {gs.type === 'NUMBER_GUESS' && (
-              <NumberGuessGame
-                state={gs}
-                myAddress={address}
-                opponentAddress={opponent}
-                onGuess={(g) => handleGameAction('guess', { guess: g })}
-              />
+            {gs['type'] === 'NUMBER_GUESS' && (
+              /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment */
+              <NumberGuessGame state={gs as any} myAddress={address} opponentAddress={opponent} onGuess={(g) => handleGameAction('guess', { guess: g })} />
+              /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment */
             )}
-            {gs.type === 'TICTACTOE' && (
-              <TicTacToeGame
-                state={gs}
-                myAddress={address}
-                opponentAddress={opponent}
-                onMove={(i) => handleGameAction('move', { index: i })}
-              />
+            {gs['type'] === 'TICTACTOE' && (
+              /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment */
+              <TicTacToeGame state={gs as any} myAddress={address} opponentAddress={opponent} onMove={(i) => handleGameAction('move', { index: i })} />
+              /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment */
             )}
           </motion.div>
         )}
 
         {/* Game Over */}
-        {txPhase === 'game_over' && room && (
+        {txPhase === 'game_over' && (
           <motion.div
             key="over"
             initial={{ opacity: 0, scale: 0.95 }}
@@ -414,20 +378,20 @@ export function GameRoom({
             <div
               className="relative overflow-hidden rounded-2xl p-6 text-center"
               style={{
-                background: room.winner === address ? 'var(--success)' : room.winner === null ? 'var(--surface-muted)' : 'var(--danger)',
+                background: winner?.toLowerCase() === address.toLowerCase() ? 'var(--success)' : winner === null ? 'var(--surface-muted)' : 'var(--danger)',
                 color: 'white',
               }}
             >
               <div className="absolute inset-x-0 top-0 h-1" style={{ background: 'linear-gradient(90deg, #5fbeff, #af8ff4, #f05c6b, #ffcd83, #7ef1b3)' }} />
               <p className="display mb-1 text-4xl font-bold">
-                {room.winner === address ? 'You Won!' : room.winner === null ? 'Draw!' : 'You Lost'}
+                {winner?.toLowerCase() === address.toLowerCase() ? 'You Won!' : winner === null ? 'Draw!' : 'You Lost'}
               </p>
-              {room.winner === address && (
+              {winner?.toLowerCase() === address.toLowerCase() && (
                 <p className="text-lg font-semibold opacity-90">
                   +{(parseFloat(wagerAmount) * 2 * 0.98).toFixed(2)} USDC
                 </p>
               )}
-              {room.winner === null && (
+              {winner === null && (
                 <p className="opacity-75">Both players refunded</p>
               )}
             </div>
