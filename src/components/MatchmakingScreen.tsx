@@ -1,6 +1,7 @@
+import { useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Shuffle } from 'lucide-react'
-import { useMatchmaking } from '../hooks/useAblyGame'
+import { useGameServer } from '../hooks/useGameServer'
 import type { GameType } from '../hooks/useGameServer'
 
 interface MatchmakingScreenProps {
@@ -13,7 +14,23 @@ interface MatchmakingScreenProps {
 }
 
 export function MatchmakingScreen({ address, gameType, wagerAmount, salt, onMatchFound, onCancel }: MatchmakingScreenProps) {
-  useMatchmaking(address, gameType, wagerAmount, salt, onMatchFound, true)
+  const { send, on } = useGameServer(address)
+
+  useEffect(() => {
+    send({ type: 'matchmake', address, gameType, wagerAmount, salt })
+
+    const unsub = on('match_found', (msg) => {
+      const data = msg as { player1Address: string; player2Address: string; roomSalt: string }
+      // roomId is computed from player1's salt
+      const roomId = data.roomSalt
+      onMatchFound(roomId, data.player1Address, data.player2Address)
+    })
+
+    return () => {
+      unsub()
+      send({ type: 'cancel_matchmake', address })
+    }
+  }, [address, gameType, wagerAmount, salt, send, on, onMatchFound])
 
   const GAME_LABELS: Record<GameType, string> = {
     TRIVIA: 'Trivia',

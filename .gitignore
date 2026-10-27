@@ -25,3 +25,7 @@ Thumbs.db
 
 # Vite
 *.local
+
+# Debug logs
+console.jsonl
+traces.jsonl

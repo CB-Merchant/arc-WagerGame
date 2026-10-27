@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract } from 'wagmi'
 import { erc20Abi, parseUnits } from 'viem'
 import { getUsdc, buildTxExplorerUrl } from '@/onchain-facts'
-import { useAblyGame } from '../hooks/useAblyGame'
+import { useGameServer } from '../hooks/useGameServer'
 import { TriviaGame } from './games/TriviaGame'
 import { RPSGame } from './games/RPSGame'
 import { NumberGuessGame } from './games/NumberGuessGame'
@@ -38,7 +38,7 @@ type TxPhase = 'idle' | 'approving' | 'approved' | 'creating_room' | 'waiting_op
 export function GameRoom({
   address, chainId, roomId, gameType, wagerAmount, isPlayer1, opponentAddress, isPrivate, onLeave
 }: GameRoomProps) {
-  const { send, on, subscribeToRoom, subscribeToPlayer } = useAblyGame(address)
+  const { send, on } = useGameServer(address)
   const [room, setRoom] = useState<Room | null>(null)
   const [txPhase, setTxPhase] = useState<TxPhase>('idle')
   const [copied, setCopied] = useState(false)
@@ -69,11 +69,11 @@ export function GameRoom({
   const { writeContract: joinRoomOnChain, data: joinHash, isPending: isJoining } = useWriteContract()
   const { isSuccess: joinSuccess, data: joinReceipt } = useWaitForTransactionReceipt({ hash: joinHash })
 
-  // Subscribe to Ably channels and listen for game events
+  // Register with WS and listen
   useEffect(() => {
     if (!address) return
-    subscribeToRoom(roomId)
-    subscribeToPlayer(address)
+    send({ type: 'register', address })
+    send({ type: 'join_room', roomId, address })
 
     const unsub1 = on('room_created', (msg) => {
       setRoom(msg.room as Room)
@@ -96,8 +96,7 @@ export function GameRoom({
     })
 
     return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5() }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address, roomId])
+  }, [address, roomId, send, on])
 
   // Track processed tx hashes to avoid re-triggering
   const processedApprove = useRef<string | undefined>(undefined)
@@ -118,7 +117,7 @@ export function GameRoom({
     if (createHash && createSuccess && createReceipt && processedCreate.current !== createHash) {
       processedCreate.current = createHash
       // Notify WS backend — best-effort, not required for code display
-      void send({
+      send({
         type: 'create_room',
         roomId,
         address,
@@ -136,7 +135,7 @@ export function GameRoom({
   useEffect(() => {
     if (joinHash && joinSuccess && joinReceipt && processedJoin.current !== joinHash) {
       processedJoin.current = joinHash
-      void send({ type: 'player_joined', roomId, address })
+      send({ type: 'player_joined', roomId, address })
     }
   }, [joinHash, joinSuccess, joinReceipt])
 
@@ -182,7 +181,7 @@ export function GameRoom({
   }, [isWrongChain, joinRoomOnChain, roomId])
 
   const handleGameAction = useCallback((action: string, payload: unknown) => {
-    void send({ type: 'game_action', roomId, address, action, payload })
+    send({ type: 'game_action', roomId, address, action, payload })
   }, [send, roomId, address])
 
   const copyCode = () => {

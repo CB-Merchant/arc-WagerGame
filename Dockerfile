@@ -14,8 +14,6 @@ RUN bun install --frozen-lockfile
 COPY . .
 
 # Build frontend (VITE_WAGER_CONTRACT is baked in here)
-# Increase Node memory limit for large dependency trees
-ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN bun run build
 
 # ── Production image ─────────────────────────────────────────────────────────
