@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    { "source": "/api/auth", "destination": "/api/auth" },
+    { "source": "/api/rooms", "destination": "/api/rooms" },
+    { "source": "/api/room", "destination": "/api/room" },
+    { "source": "/api/create-room", "destination": "/api/create-room" },
+    { "source": "/api/join-room", "destination": "/api/join-room" },
+    { "source": "/api/matchmake", "destination": "/api/matchmake" },
+    { "source": "/api/game-action", "destination": "/api/game-action" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

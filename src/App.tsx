@@ -8,7 +8,7 @@ import { GameLobby } from './components/GameLobby'
 import { MatchmakingScreen } from './components/MatchmakingScreen'
 import { GameRoom } from './components/GameRoom'
 import { UsdcBalance } from './components/UsdcBalance'
-import { useOnlinePlayers } from './hooks/useGameServer'
+import { useOnlinePlayersAbly } from './hooks/useAblyGame'
 import type { GameType } from './hooks/useGameServer'
 
 const ARC_TESTNET_CHAIN_ID = 5042002
@@ -30,7 +30,7 @@ export default function App() {
   const { address, chainId, isConnected } = useAccount()
   const { switchChain } = useSwitchChain()
   const [view, setView] = useState<AppView>({ type: 'lobby' })
-  const onlineCount = useOnlinePlayers()
+  const onlineCount = useOnlinePlayersAbly()
 
   const handlePublicMatch = useCallback((gameType: GameType, wagerAmount: string) => {
     if (!address) { toast.error('Connect your wallet first'); return }
