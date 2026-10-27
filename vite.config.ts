@@ -5,6 +5,17 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills'
 
 export default defineConfig({
   plugins: [react(), nodePolyfills()],
+  build: {
+    rollupOptions: {
+      onwarn(warning, warn) {
+        // Suppress pure annotation warnings from third-party packages
+        if (warning.code === 'INVALID_ANNOTATION') return
+        if (warning.message?.includes('/*#__PURE__*/')) return
+        if (warning.message?.includes('@__PURE__')) return
+        warn(warning)
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
