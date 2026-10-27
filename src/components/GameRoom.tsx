@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Copy, CheckCircle, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract } from 'wagmi'
-import { erc20Abi, parseUnits } from 'viem'
+import { erc20Abi, parseUnits, pad } from 'viem'
 import { getUsdc, buildTxExplorerUrl } from '@/onchain-facts'
 import { useAblyRoom } from '../hooks/useAblyGame'
 import { TriviaGame } from './games/TriviaGame'
@@ -11,7 +11,7 @@ import { RPSGame } from './games/RPSGame'
 import { NumberGuessGame } from './games/NumberGuessGame'
 import { TicTacToeGame } from './games/TicTacToeGame'
 import type { GameType } from '../hooks/useGameServer'
-import WAGER_ARTIFACT from '../../contracts/out/WagerGame.sol/WagerGame.json'
+import { WAGER_GAME_ABI } from '../abi/WagerGame'
 
 const ARC_TESTNET_CHAIN_ID = 5042002
 const USDC_FACT = getUsdc(ARC_TESTNET_CHAIN_ID)!
@@ -129,10 +129,10 @@ export function GameRoom({
 
   const handleCreateRoom = useCallback(() => {
     if (isWrongChain) { toast.error('Switch to Arc Testnet first'); return }
-    const saltBytes = `0x${roomId.replace('0x', '')}`
+    const saltBytes = pad(roomId as `0x${string}`, { size: 32 })
     createRoom({
       address: CONTRACT_ADDRESS,
-      abi: WAGER_ARTIFACT.abi,
+      abi: WAGER_GAME_ABI,
       functionName: 'createRoom',
       args: [
         ['TRIVIA', 'RPS', 'NUMBER_GUESS', 'TICTACTOE'].indexOf(gameType),
@@ -149,7 +149,7 @@ export function GameRoom({
     if (isWrongChain) { toast.error('Switch to Arc Testnet first'); return }
     joinRoomOnChain({
       address: CONTRACT_ADDRESS,
-      abi: WAGER_ARTIFACT.abi,
+      abi: WAGER_GAME_ABI,
       functionName: 'joinRoom',
       args: [roomId as `0x${string}`],
       chainId: ARC_TESTNET_CHAIN_ID,
