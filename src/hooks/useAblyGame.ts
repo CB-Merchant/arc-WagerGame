@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import Ably from 'ably';
 
-const ABLY_KEY = import.meta.env.VITE_ABLY_KEY as string;
-
 let ablyClient: Ably.Realtime | null = null;
 
 function getAbly(clientId: string): Ably.Realtime {
@@ -20,7 +18,7 @@ export function useOnlinePlayersAbly(playerId: string) {
   const [count, setCount] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!ABLY_KEY && !playerId) return;
+    if (!playerId) return;
     const ably = getAbly(playerId);
     const channel = ably.channels.get('lobby');
 
@@ -49,6 +47,25 @@ export function useAblyMatchmaking(playerId: string) {
 
   const startMatchmaking = useCallback(async (gameType: string, wagerAmount: string) => {
     setStatus('queued');
+
+    // Enter presence on the matchmaking queue channel so server can see us
+    const ably = getAbly(playerId);
+    const queueChannel = ably.channels.get(`matchmaking:${gameType}:${wagerAmount}`);
+    void queueChannel.presence.enter({ playerId, gameType, wagerAmount });
+
+    // Listen on our personal channel for a match
+    const playerCh = ably.channels.get(`player:${playerId}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    void playerCh.subscribe('matched', (msg: any) => {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      const d = msg.data as { roomId: string; role: string };
+      setMatchedRoom({ roomId: d.roomId, role: d.role });
+      setStatus('matched');
+      playerCh.unsubscribe();
+      void queueChannel.presence.leave();
+    });
+
+    // Call server to attempt immediate match
     const res = await fetch('/api/matchmake', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -58,19 +75,10 @@ export function useAblyMatchmaking(playerId: string) {
     if (data.status === 'matched' && data.roomId) {
       setMatchedRoom({ roomId: data.roomId, role: data.role ?? 'player2' });
       setStatus('matched');
-    } else {
-      // Queued — listen on player channel for match
-      const ably = getAbly(playerId);
-      const ch = ably.channels.get(`player:${playerId}`);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      void ch.subscribe('matched', (msg: any) => {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-        const d = msg.data as { roomId: string; role: string };
-        setMatchedRoom({ roomId: d.roomId, role: d.role });
-        setStatus('matched');
-        ch.unsubscribe();
-      });
+      playerCh.unsubscribe();
+      void queueChannel.presence.leave();
     }
+    // Otherwise stay queued — Ably presence will notify the next player to join
   }, [playerId]);
 
   const cancelMatchmaking = useCallback(async (gameType: string, wagerAmount: string) => {
