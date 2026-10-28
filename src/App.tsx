@@ -8,6 +8,7 @@ import { GameLobby } from './components/GameLobby'
 import { MatchmakingScreen } from './components/MatchmakingScreen'
 import { GameRoom } from './components/GameRoom'
 import { UsdcBalance } from './components/UsdcBalance'
+import { Logo } from './components/Logo'
 import { useOnlinePlayers } from './hooks/useGameServer'
 import type { GameType } from './hooks/useGameServer'
 
@@ -118,9 +119,12 @@ export default function App() {
       <div className="relative z-10 mx-auto max-w-md px-4 pb-10 pt-6">
         {/* Header */}
         <header className="mb-4 flex items-center justify-between">
-          <div>
-            <h1 className="display text-2xl font-bold tracking-tight" style={{ color: 'var(--ink)' }}>WagerGame</h1>
-            <p className="text-xs" style={{ color: 'var(--muted)' }}>Play. Wager. Win USDC.</p>
+          <div className="flex items-center gap-3">
+            <Logo size={44} />
+            <div>
+              <h1 className="display text-2xl font-bold tracking-tight" style={{ color: 'var(--ink)' }}>WagerGame</h1>
+              <p className="text-xs" style={{ color: 'var(--muted)' }}>Play. Wager. Win USDC.</p>
+            </div>
           </div>
           <ConnectKitButton />
         </header>
