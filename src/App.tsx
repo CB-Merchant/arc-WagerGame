@@ -71,10 +71,24 @@ export default function App() {
       return
     }
     // Fetch room info from server to get wager and game type
-    fetch(`/api/room/${roomCode}`)
+    fetch(`/api/room?id=${encodeURIComponent(roomCode)}`)
       .then(r => r.json())
-      .then((d: { room?: { gameType: GameType; wagerAmount: string; player1: string } }) => {
-        if (!d.room) { toast.error('Room not found'); return }
+      .then((d: { room?: { gameType: GameType; wagerAmount: string; player1: string } | null }) => {
+        if (!d.room) {
+          // Room not in Ably history (may be old) — still allow joining with defaults
+          // The contract is the source of truth; player2 can join and game will start
+          toast.info('Joining room...')
+          setView({
+            type: 'room',
+            roomId: roomCode,
+            gameType: 'TRIVIA' as GameType,
+            wagerAmount: '5',
+            isPlayer1: false,
+            opponentAddress: '',
+            isPrivate: true,
+          })
+          return
+        }
         setView({
           type: 'room',
           roomId: roomCode,
@@ -85,7 +99,7 @@ export default function App() {
           isPrivate: true,
         })
       })
-      .catch(() => toast.error('Could not find that room'))
+      .catch(() => toast.error('Could not reach server — check your connection'))
   }, [address, chainId, switchChain])
 
   const handleMatchFound = useCallback((roomId: string, player1: string, player2: string) => {

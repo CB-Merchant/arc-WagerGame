@@ -1,6 +1,6 @@
 import Ably from 'ably';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { rooms, generateRoomId, initGameState } from './_gameLogic';
+import { generateRoomId, initGameState } from './_gameLogic';
 import type { GameType } from './_gameLogic';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -25,20 +25,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     wagerAmount,
     isPrivate: !!isPrivate,
     player1,
-    player2: null,
+    player2: null as string | null,
     status: 'WAITING' as const,
     createdAt: Date.now(),
     gameState: initGameState(gameType),
   };
 
-  rooms.set(roomId, room);
-
   const apiKey = process.env.ABLY_API_KEY;
-  if (apiKey) {
-    const ably = new Ably.Rest(apiKey);
-    const channel = ably.channels.get(`room:${roomId}`);
-    await channel.publish('room_created', { room });
-  }
+  if (!apiKey) return res.status(500).json({ error: 'Ably not configured' });
+
+  const ably = new Ably.Rest(apiKey);
+  // Enable channel history so /api/room can retrieve room data later
+  const channel = ably.channels.get(`room:${roomId}`, { params: { persist: 'true' } });
+
+  // Publish room_created — this message is stored in Ably channel history (2min retention on free plan)
+  // and retrieved by /api/room when player2 looks up the room
+  await channel.publish('room_created', { room });
 
   res.status(200).json({ roomId, room });
 }
