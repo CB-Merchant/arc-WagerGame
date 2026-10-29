@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { Copy, CheckCircle, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract } from 'wagmi'
@@ -67,7 +66,8 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
   const ablyChannelRef = useRef<{ publish: (name: string, data: unknown) => Promise<unknown>; unsubscribe: () => void } | null>(null)
   const ablyReadyRef = useRef(false)
 
-  const wagerBigInt = parseUnits(String(parseFloat(wagerAmount) || 0), USDC_DECIMALS)
+  const wagerFloat = Math.max(0, parseFloat(wagerAmount) || 0)
+  const wagerBigInt = parseUnits(wagerFloat.toFixed(6), USDC_DECIMALS)
   const myRole: 'p1' | 'p2' = isPlayer1 ? 'p1' : 'p2'
 
   // Allowance check
@@ -85,15 +85,30 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
   const { writeContract: joinRoomOnChain, data: joinHash, isPending: isJoining, error: joinError } = useWriteContract()
   const { isSuccess: joinSuccess } = useWaitForTransactionReceipt({ hash: joinHash })
 
-  // Surface wallet errors and reset stuck phases
+  // Surface wallet errors — only show once per error (not on mount from stale wagmi cache)
+  const shownApproveError = useRef<string | null>(null)
+  const shownCreateError = useRef<string | null>(null)
+  const shownJoinError = useRef<string | null>(null)
   useEffect(() => {
-    if (approveError) { toast.error(`Approve failed: ${approveError.message.slice(0, 80)}`); setTxPhase('idle') }
+    if (approveError && approveError.message !== shownApproveError.current) {
+      shownApproveError.current = approveError.message
+      toast.error(`Approve failed: ${approveError.message.slice(0, 80)}`)
+      setTxPhase('idle')
+    }
   }, [approveError])
   useEffect(() => {
-    if (createError) { toast.error(`Create room failed: ${createError.message.slice(0, 80)}`); setTxPhase('approved') }
+    if (createError && createError.message !== shownCreateError.current) {
+      shownCreateError.current = createError.message
+      toast.error(`Create room failed: ${createError.message.slice(0, 80)}`)
+      setTxPhase('approved')
+    }
   }, [createError])
   useEffect(() => {
-    if (joinError) { toast.error(`Join failed: ${joinError.message.slice(0, 80)}`); setTxPhase('approved') }
+    if (joinError && joinError.message !== shownJoinError.current) {
+      shownJoinError.current = joinError.message
+      toast.error(`Join failed: ${joinError.message.slice(0, 80)}`)
+      setTxPhase('approved')
+    }
   }, [joinError])
 
   const processedApprove = useRef<string | undefined>(undefined)
@@ -374,134 +389,125 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
         <p className="mt-0.5 text-xs opacity-60">{wagerAmount} each · 2% platform fee</p>
       </div>
 
-      <AnimatePresence mode="wait">
-        {/* ── PLAYER 1 FLOW ── */}
-        {isPlayer1 && txPhase === 'idle' && (
-          <motion.div key="p1-approve" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-3">
-            <StepCard step={1} active>
-              <p className="font-semibold" style={{ color: 'var(--ink)' }}>Approve USDC</p>
-              <p className="text-sm" style={{ color: 'var(--muted)' }}>Allow the contract to hold your {wagerAmount} USDC wager</p>
-              <button onClick={hasAllowance ? () => setTxPhase('approved') : handleApprove} disabled={isApproving}
-                className="mt-3 w-full rounded-xl py-3 font-semibold disabled:opacity-50" style={{ background: 'var(--accent)', color: 'white' }}>
-                {isApproving ? 'Confirm in wallet...' : hasAllowance ? 'Already approved — continue' : `Approve ${wagerAmount} USDC`}
-              </button>
-            </StepCard>
-            <StepCard step={2}><p className="text-sm" style={{ color: 'var(--muted)' }}>Create room on-chain</p></StepCard>
-            <StepCard step={3}><p className="text-sm" style={{ color: 'var(--muted)' }}>Share code, wait for opponent</p></StepCard>
-          </motion.div>
-        )}
-
-        {isPlayer1 && txPhase === 'approved' && (
-          <motion.div key="p1-create" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-3">
-            <StepCard step={1} done><p className="text-sm" style={{ color: 'var(--success)' }}>USDC approved</p></StepCard>
-            <StepCard step={2} active>
-              <p className="font-semibold" style={{ color: 'var(--ink)' }}>Create Room on-chain</p>
-              <p className="text-sm" style={{ color: 'var(--muted)' }}>Your room code will be: <span className="font-black text-lg" style={{ color: 'var(--accent)' }}>{roomPin}</span></p>
-              <button onClick={handleCreateRoom} disabled={isCreating}
-                className="mt-3 w-full rounded-xl py-3 font-semibold disabled:opacity-50" style={{ background: 'var(--accent)', color: 'white' }}>
-                {isCreating ? 'Confirm in wallet...' : 'Create Room'}
-              </button>
-            </StepCard>
-          </motion.div>
-        )}
-
-        {isPlayer1 && (txPhase === 'creating_room' || txPhase === 'waiting_opponent') && (
-          <motion.div key="p1-wait" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-3">
-            <div className="rounded-2xl p-4" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(16px)', border: '2px solid var(--accent)' }}>
-              <p className="mb-3 text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--muted)' }}>
-                Room Code
-              </p>
-              <div className="flex items-center justify-between gap-3">
-                <p className="mono text-5xl font-black tracking-[0.2em]" style={{ color: 'var(--ink)' }}>
-                  {roomPin ?? '····'}
-                </p>
-                <button onClick={copyCode} className="flex shrink-0 items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold" style={{ background: 'var(--accent)', color: 'white' }}>
-                  {copied ? <CheckCircle size={16} /> : <Copy size={16} />}
-                  {copied ? 'Copied!' : 'Copy'}
-                </button>
-              </div>
-              <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>
-                Share this 4-digit code with your opponent
-              </p>
-            </div>
-            <div className="flex items-center justify-center gap-2 rounded-2xl py-4" style={{ background: 'var(--surface-muted)' }}>
-              {txPhase === 'creating_room'
-                ? <><div className="h-5 w-5 animate-spin rounded-full border-2 border-transparent" style={{ borderTopColor: 'var(--accent)' }} /><p className="text-sm font-medium" style={{ color: 'var(--ink)' }}>Confirming on-chain...</p></>
-                : <><div className="h-2.5 w-2.5 animate-pulse rounded-full" style={{ background: 'var(--accent)' }} /><p className="text-sm font-medium" style={{ color: 'var(--ink)' }}>Waiting for opponent to join...</p></>
-              }
-            </div>
-          </motion.div>
-        )}
-
-        {/* ── PLAYER 2 FLOW ── */}
-        {!isPlayer1 && txPhase === 'idle' && (
-          <motion.div key="p2-approve" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-            <StepCard step={1} active>
-              <p className="font-semibold" style={{ color: 'var(--ink)' }}>Approve USDC</p>
-              <p className="text-sm" style={{ color: 'var(--muted)' }}>Allow the contract to hold your {wagerAmount} USDC wager</p>
-              <button onClick={hasAllowance ? () => setTxPhase('approved') : handleApprove} disabled={isApproving}
-                className="mt-3 w-full rounded-xl py-3 font-semibold disabled:opacity-50" style={{ background: 'var(--accent)', color: 'white' }}>
-                {isApproving ? 'Confirm in wallet...' : hasAllowance ? 'Already approved — continue' : `Approve ${wagerAmount} USDC`}
-              </button>
-            </StepCard>
-          </motion.div>
-        )}
-
-        {!isPlayer1 && txPhase === 'approved' && (
-          <motion.div key="p2-join" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-            <StepCard step={2} active>
-              <p className="font-semibold" style={{ color: 'var(--ink)' }}>Join Room on-chain</p>
-              <p className="text-sm" style={{ color: 'var(--muted)' }}>Lock your {wagerAmount} USDC wager and start the game</p>
-              <button onClick={handleJoinRoom} disabled={isJoining}
-                className="mt-3 w-full rounded-xl py-3 font-semibold disabled:opacity-50" style={{ background: 'var(--accent)', color: 'white' }}>
-                {isJoining ? 'Confirm in wallet...' : 'Join & Start Game'}
-              </button>
-            </StepCard>
-          </motion.div>
-        )}
-
-        {/* ── ACTIVE GAME ── */}
-        {txPhase === 'game_active' && gameState && (
-          <motion.div key="game" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            {gameState.type === 'TRIVIA' && (
-              <TriviaGame state={gameState} myRole={myRole} questions={TRIVIA_QUESTIONS} onAnswer={(i) => handleGameAction('answer', { answerIndex: i })} />
-            )}
-            {gameState.type === 'RPS' && (
-              <RPSGame state={gameState} myRole={myRole} onChoice={(c) => handleGameAction('choice', { choice: c })} />
-            )}
-            {gameState.type === 'NUMBER_GUESS' && (
-              <NumberGuessGame state={gameState} myRole={myRole} onGuess={(g) => handleGameAction('guess', { guess: g })} />
-            )}
-            {gameState.type === 'TICTACTOE' && (
-              <TicTacToeGame state={gameState} myRole={myRole} onMove={(i) => handleGameAction('move', { index: i })} />
-            )}
-          </motion.div>
-        )}
-
-        {/* ── GAME OVER ── */}
-        {txPhase === 'game_over' && (
-          <motion.div key="over" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-4">
-            <div className="relative overflow-hidden rounded-2xl p-6 text-center"
-              style={{ background: localWinner === 'me' ? 'var(--success)' : localWinner === 'draw' ? 'var(--surface-muted)' : 'var(--danger)', color: localWinner === 'draw' ? 'var(--ink)' : 'white' }}>
-              <div className="absolute inset-x-0 top-0 h-1" style={{ background: 'linear-gradient(90deg, #5fbeff, #af8ff4, #f05c6b, #ffcd83, #7ef1b3)' }} />
-              <p className="display mb-1 text-4xl font-bold">
-                {localWinner === 'me' ? '🏆 You Won!' : localWinner === 'draw' ? 'Draw!' : 'You Lost'}
-              </p>
-              {localWinner === 'me' && <p className="text-lg font-semibold opacity-90">+{(parseFloat(wagerAmount) * 2 * 0.98).toFixed(2)} USDC</p>}
-              {localWinner === 'draw' && <p className="opacity-75">Both players refunded</p>}
-            </div>
-            {createHash && (
-              <a href={buildTxExplorerUrl(ARC_TESTNET_CHAIN_ID, createHash)} target="_blank" rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 text-sm" style={{ color: 'var(--muted)' }}>
-                <ExternalLink size={14} /> View on explorer
-              </a>
-            )}
-            <button onClick={onLeave} className="w-full rounded-2xl py-4 font-semibold" style={{ background: 'var(--accent)', color: 'white' }}>
-              Back to Lobby
+      {/* ── PLAYER 1: Step 1 — Approve ── */}
+      {isPlayer1 && (txPhase === 'idle' || txPhase === 'approving') && (
+        <div className="space-y-3">
+          <StepCard step={1} active>
+            <p className="font-semibold" style={{ color: 'var(--ink)' }}>Approve USDC</p>
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>Allow the contract to hold your {wagerAmount} USDC wager</p>
+            <button onClick={hasAllowance ? () => setTxPhase('approved') : handleApprove} disabled={isApproving}
+              className="mt-3 w-full rounded-xl py-3 font-semibold disabled:opacity-50" style={{ background: 'var(--accent)', color: 'white' }}>
+              {isApproving ? 'Confirm in wallet...' : hasAllowance ? 'Already approved — continue' : `Approve ${wagerAmount} USDC`}
             </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </StepCard>
+          <StepCard step={2}><p className="text-sm" style={{ color: 'var(--muted)' }}>Create room on-chain</p></StepCard>
+          <StepCard step={3}><p className="text-sm" style={{ color: 'var(--muted)' }}>Share code, wait for opponent</p></StepCard>
+        </div>
+      )}
+
+      {/* ── PLAYER 1: Step 2 — Create Room ── */}
+      {isPlayer1 && txPhase === 'approved' && (
+        <div className="space-y-3">
+          <StepCard step={1} done><p className="text-sm" style={{ color: 'var(--success)' }}>USDC approved</p></StepCard>
+          <StepCard step={2} active>
+            <p className="font-semibold" style={{ color: 'var(--ink)' }}>Create Room on-chain</p>
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>Your room code will be: <span className="font-black text-lg" style={{ color: 'var(--accent)' }}>{roomPin}</span></p>
+            <button onClick={handleCreateRoom} disabled={isCreating}
+              className="mt-3 w-full rounded-xl py-3 font-semibold disabled:opacity-50" style={{ background: 'var(--accent)', color: 'white' }}>
+              {isCreating ? 'Confirm in wallet...' : 'Create Room'}
+            </button>
+          </StepCard>
+        </div>
+      )}
+
+      {/* ── PLAYER 1: Step 3 — Waiting ── */}
+      {isPlayer1 && (txPhase === 'creating_room' || txPhase === 'waiting_opponent') && (
+        <div className="space-y-3">
+          <div className="rounded-2xl p-4" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(16px)', border: '2px solid var(--accent)' }}>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--muted)' }}>Your Room Code</p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="mono text-5xl font-black tracking-[0.2em]" style={{ color: 'var(--ink)' }}>{roomPin}</p>
+              <button onClick={copyCode} className="flex shrink-0 items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold" style={{ background: 'var(--accent)', color: 'white' }}>
+                {copied ? <CheckCircle size={16} /> : <Copy size={16} />}
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+            <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>Share this 4-digit code with your opponent</p>
+          </div>
+          <div className="flex items-center justify-center gap-2 rounded-2xl py-4" style={{ background: 'var(--surface-muted)' }}>
+            {txPhase === 'creating_room'
+              ? <><div className="h-5 w-5 animate-spin rounded-full border-2 border-transparent" style={{ borderTopColor: 'var(--accent)' }} /><p className="text-sm font-medium" style={{ color: 'var(--ink)' }}>Confirming on-chain...</p></>
+              : <><div className="h-2.5 w-2.5 animate-pulse rounded-full" style={{ background: 'var(--accent)' }} /><p className="text-sm font-medium" style={{ color: 'var(--ink)' }}>Waiting for opponent to join...</p></>
+            }
+          </div>
+        </div>
+      )}
+
+      {/* ── PLAYER 2: Step 1 — Approve ── */}
+      {!isPlayer1 && (txPhase === 'idle' || txPhase === 'approving') && (
+        <StepCard step={1} active>
+          <p className="font-semibold" style={{ color: 'var(--ink)' }}>Approve USDC</p>
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>Allow the contract to hold your {wagerAmount} USDC wager</p>
+          <button onClick={hasAllowance ? () => setTxPhase('approved') : handleApprove} disabled={isApproving}
+            className="mt-3 w-full rounded-xl py-3 font-semibold disabled:opacity-50" style={{ background: 'var(--accent)', color: 'white' }}>
+            {isApproving ? 'Confirm in wallet...' : hasAllowance ? 'Already approved — continue' : `Approve ${wagerAmount} USDC`}
+          </button>
+        </StepCard>
+      )}
+
+      {/* ── PLAYER 2: Step 2 — Join ── */}
+      {!isPlayer1 && txPhase === 'approved' && (
+        <StepCard step={2} active>
+          <p className="font-semibold" style={{ color: 'var(--ink)' }}>Join Room on-chain</p>
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>Lock your {wagerAmount} USDC wager and start the game</p>
+          <button onClick={handleJoinRoom} disabled={isJoining}
+            className="mt-3 w-full rounded-xl py-3 font-semibold disabled:opacity-50" style={{ background: 'var(--accent)', color: 'white' }}>
+            {isJoining ? 'Confirm in wallet...' : 'Join & Start Game'}
+          </button>
+        </StepCard>
+      )}
+
+      {/* ── ACTIVE GAME ── */}
+      {txPhase === 'game_active' && gameState && (
+        <div>
+          {gameState.type === 'TRIVIA' && (
+            <TriviaGame state={gameState} myRole={myRole} questions={TRIVIA_QUESTIONS} onAnswer={(i) => handleGameAction('answer', { answerIndex: i })} />
+          )}
+          {gameState.type === 'RPS' && (
+            <RPSGame state={gameState} myRole={myRole} onChoice={(c) => handleGameAction('choice', { choice: c })} />
+          )}
+          {gameState.type === 'NUMBER_GUESS' && (
+            <NumberGuessGame state={gameState} myRole={myRole} onGuess={(g) => handleGameAction('guess', { guess: g })} />
+          )}
+          {gameState.type === 'TICTACTOE' && (
+            <TicTacToeGame state={gameState} myRole={myRole} onMove={(i) => handleGameAction('move', { index: i })} />
+          )}
+        </div>
+      )}
+
+      {/* ── GAME OVER ── */}
+      {txPhase === 'game_over' && (
+        <div className="space-y-4">
+          <div className="relative overflow-hidden rounded-2xl p-6 text-center"
+            style={{ background: localWinner === 'me' ? 'var(--success)' : localWinner === 'draw' ? 'var(--surface-muted)' : 'var(--danger)', color: localWinner === 'draw' ? 'var(--ink)' : 'white' }}>
+            <div className="absolute inset-x-0 top-0 h-1" style={{ background: 'linear-gradient(90deg, #5fbeff, #af8ff4, #f05c6b, #ffcd83, #7ef1b3)' }} />
+            <p className="display mb-1 text-4xl font-bold">
+              {localWinner === 'me' ? '🏆 You Won!' : localWinner === 'draw' ? 'Draw!' : 'You Lost'}
+            </p>
+            {localWinner === 'me' && <p className="text-lg font-semibold opacity-90">+{(parseFloat(wagerAmount) * 2 * 0.98).toFixed(2)} USDC</p>}
+            {localWinner === 'draw' && <p className="opacity-75">Both players refunded</p>}
+          </div>
+          {createHash && (
+            <a href={buildTxExplorerUrl(ARC_TESTNET_CHAIN_ID, createHash)} target="_blank" rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 text-sm" style={{ color: 'var(--muted)' }}>
+              <ExternalLink size={14} /> View on explorer
+            </a>
+          )}
+          <button onClick={onLeave} className="w-full rounded-2xl py-4 font-semibold" style={{ background: 'var(--accent)', color: 'white' }}>
+            Back to Lobby
+          </button>
+        </div>
+      )}
     </div>
   )
 }
