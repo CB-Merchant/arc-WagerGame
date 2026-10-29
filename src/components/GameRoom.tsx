@@ -79,12 +79,23 @@ export function GameRoom({ address, chainId, roomId, gameType, wagerAmount, isPl
   const hasAllowance = allowance !== undefined && allowance >= wagerBigInt
 
   // Wagmi hooks
-  const { writeContract: approveUsdc, data: approveHash, isPending: isApproving } = useWriteContract()
+  const { writeContract: approveUsdc, data: approveHash, isPending: isApproving, error: approveError } = useWriteContract()
   const { isSuccess: approveSuccess } = useWaitForTransactionReceipt({ hash: approveHash })
-  const { writeContract: createRoom, data: createHash, isPending: isCreating } = useWriteContract()
+  const { writeContract: createRoom, data: createHash, isPending: isCreating, error: createError } = useWriteContract()
   const { isSuccess: createSuccess } = useWaitForTransactionReceipt({ hash: createHash })
-  const { writeContract: joinRoomOnChain, data: joinHash, isPending: isJoining } = useWriteContract()
+  const { writeContract: joinRoomOnChain, data: joinHash, isPending: isJoining, error: joinError } = useWriteContract()
   const { isSuccess: joinSuccess } = useWaitForTransactionReceipt({ hash: joinHash })
+
+  // Surface wallet errors and reset stuck phases
+  useEffect(() => {
+    if (approveError) { toast.error(`Approve failed: ${approveError.message.slice(0, 80)}`); setTxPhase('idle') }
+  }, [approveError])
+  useEffect(() => {
+    if (createError) { toast.error(`Create room failed: ${createError.message.slice(0, 80)}`); setTxPhase('approved') }
+  }, [createError])
+  useEffect(() => {
+    if (joinError) { toast.error(`Join failed: ${joinError.message.slice(0, 80)}`); setTxPhase('approved') }
+  }, [joinError])
 
   const processedApprove = useRef<string | undefined>(undefined)
   const processedCreate = useRef<string | undefined>(undefined)
@@ -192,11 +203,13 @@ export function GameRoom({ address, chainId, roomId, gameType, wagerAmount, isPl
 
   const handleCreateRoom = useCallback(() => {
     if (isWrongChain) { toast.error('Switch to Arc Testnet first'); return }
+    if (!CONTRACT_ADDRESS) { toast.error('Contract address not set'); return }
     const saltBytes = pad(roomId as `0x${string}`, { size: 32 })
-    setTxPhase('creating_room')
+    toast.info('Sending create room tx...')
     createRoom({ address: CONTRACT_ADDRESS, abi: WAGER_GAME_ABI, functionName: 'createRoom',
       args: [['TRIVIA', 'RPS', 'NUMBER_GUESS', 'TICTACTOE'].indexOf(gameType), wagerBigInt, isPrivate, saltBytes],
       chainId: ARC_TESTNET_CHAIN_ID })
+    setTxPhase('creating_room')
   }, [isWrongChain, createRoom, roomId, gameType, wagerBigInt, isPrivate])
 
   const handleJoinRoom = useCallback(() => {
@@ -379,7 +392,7 @@ export function GameRoom({ address, chainId, roomId, gameType, wagerAmount, isPl
             <StepCard step={1} done><p className="text-sm" style={{ color: 'var(--success)' }}>USDC approved</p></StepCard>
             <StepCard step={2} active>
               <p className="font-semibold" style={{ color: 'var(--ink)' }}>Create Room on-chain</p>
-              <p className="text-sm" style={{ color: 'var(--muted)' }}>Locks your wager in the smart contract</p>
+              <p className="text-sm" style={{ color: 'var(--muted)' }}>Your room code will be: <span className="font-black text-lg" style={{ color: 'var(--accent)' }}>{roomPin}</span></p>
               <button onClick={handleCreateRoom} disabled={isCreating}
                 className="mt-3 w-full rounded-xl py-3 font-semibold disabled:opacity-50" style={{ background: 'var(--accent)', color: 'white' }}>
                 {isCreating ? 'Confirm in wallet...' : 'Create Room'}
