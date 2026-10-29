@@ -1,29 +1,36 @@
 /**
- * wagmi + ConnectKit configuration with full multi-wallet support
+ * wagmi + ConnectKit configuration
  * Built with Arc Studio — https://studio.arc.io
  */
 
 import { http, createConfig } from 'wagmi'
-import { mainnet } from 'wagmi/chains'
-import { arcTestnet } from 'viem/chains'
+import { defineChain } from 'viem'
 import { getDefaultConfig } from 'connectkit'
 import { registerChain } from './tracing'
 
-// Pre-register chain RPC URLs so trace events show correct chain names immediately
-registerChain(arcTestnet.id, arcTestnet.rpcUrls.default.http[0])
+const ARC_TESTNET_RPC = 'https://rpc.testnet.arc.io'
+
+export const arcTestnet = defineChain({
+  id: 5042002,
+  name: 'Arc Testnet',
+  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+  rpcUrls: { default: { http: [ARC_TESTNET_RPC] } },
+  blockExplorers: { default: { name: 'Arc Explorer', url: 'https://explorer.testnet.arc.io' } },
+  testnet: true,
+})
+
+registerChain(arcTestnet.id, ARC_TESTNET_RPC)
 
 export const config = createConfig(
   getDefaultConfig({
-    chains: [arcTestnet, mainnet],
+    chains: [arcTestnet],
     transports: {
-      [arcTestnet.id]: http(),
-      [mainnet.id]: http(),
+      [arcTestnet.id]: http(ARC_TESTNET_RPC),
     },
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    walletConnectProjectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID ?? '',
+    walletConnectProjectId: (import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined) ?? '',
     appName: 'Arc WagerGame',
     appDescription: 'Multiplayer wager games powered by USDC on Arc',
     appUrl: 'https://www.arcwagergame.fun',
-    appIcon: 'https://www.arcwagergame.fun/favicon.ico',
+    appIcon: 'https://www.arcwagergame.fun/favicon.svg',
   }),
 )
