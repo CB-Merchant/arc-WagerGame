@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Shuffle } from 'lucide-react'
-import { useGameServer } from '../hooks/useGameServer'
+import { useAblyMatchmaking } from '../hooks/useAblyGame'
 import type { GameType } from '../hooks/useGameServer'
 
 interface MatchmakingScreenProps {
@@ -9,35 +9,33 @@ interface MatchmakingScreenProps {
   gameType: GameType
   wagerAmount: string
   salt: string
-  onMatchFound: (roomId: string, player1: string, player2: string) => void
+  onMatchFound: (roomId: string, role: string, opponent: string) => void
   onCancel: () => void
 }
 
-export function MatchmakingScreen({ address, gameType, wagerAmount, salt, onMatchFound, onCancel }: MatchmakingScreenProps) {
-  const { send, on } = useGameServer(address)
+const GAME_LABELS: Record<GameType, string> = {
+  TRIVIA: 'Trivia',
+  RPS: 'Rock Paper Scissors',
+  NUMBER_GUESS: 'Number Duel',
+  TICTACTOE: 'Tic-Tac-Toe',
+}
 
+export function MatchmakingScreen({ address, gameType, wagerAmount, onMatchFound, onCancel }: MatchmakingScreenProps) {
+  const { status, matchedRoom, startMatchmaking, cancelMatchmaking } = useAblyMatchmaking(address)
+
+  // Start matchmaking on mount
   useEffect(() => {
-    send({ type: 'matchmake', address, gameType, wagerAmount, salt })
+    void startMatchmaking(gameType, wagerAmount)
+    return () => { void cancelMatchmaking(gameType, wagerAmount) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-    const unsub = on('match_found', (msg) => {
-      const data = msg as { player1Address: string; player2Address: string; roomSalt: string }
-      // roomId is computed from player1's salt
-      const roomId = data.roomSalt
-      onMatchFound(roomId, data.player1Address, data.player2Address)
-    })
-
-    return () => {
-      unsub()
-      send({ type: 'cancel_matchmake', address })
+  // Navigate when matched
+  useEffect(() => {
+    if (status === 'matched' && matchedRoom) {
+      onMatchFound(matchedRoom.roomId, matchedRoom.role, '')
     }
-  }, [address, gameType, wagerAmount, salt, send, on, onMatchFound])
-
-  const GAME_LABELS: Record<GameType, string> = {
-    TRIVIA: 'Trivia',
-    RPS: 'Rock Paper Scissors',
-    NUMBER_GUESS: 'Number Duel',
-    TICTACTOE: 'Tic-Tac-Toe',
-  }
+  }, [status, matchedRoom, onMatchFound])
 
   return (
     <div className="space-y-6 text-center">
@@ -75,7 +73,7 @@ export function MatchmakingScreen({ address, gameType, wagerAmount, salt, onMatc
       </div>
 
       <button
-        onClick={onCancel}
+        onClick={() => { void cancelMatchmaking(gameType, wagerAmount); onCancel() }}
         className="w-full rounded-2xl py-4 font-semibold"
         style={{ background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(16px)', border: '1.5px solid rgba(255,255,255,0.8)', color: 'var(--ink)' }}
       >

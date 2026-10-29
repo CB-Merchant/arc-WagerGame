@@ -40,8 +40,7 @@ export default function App() {
       toast.info('Switching to Arc Testnet...')
       return
     }
-    const salt = generateRoomId(address, gameType)
-    setView({ type: 'matchmaking', gameType, wagerAmount, salt })
+    setView({ type: 'matchmaking', gameType, wagerAmount, salt: '' })
   }, [address, chainId, switchChain])
 
   const handlePrivateCreate = useCallback((gameType: GameType, wagerAmount: string) => {
@@ -93,9 +92,8 @@ export default function App() {
       .catch(() => toast.error('Could not reach server — check your connection'))
   }, [address, chainId, switchChain])
 
-  const handleMatchFound = useCallback((roomId: string, player1: string, player2: string) => {
+  const handleMatchFound = useCallback((roomId: string, role: string, _opponent: string) => {
     if (!address) return
-    const isMe1 = player1.toLowerCase() === address.toLowerCase()
     const v = view
     if (v.type !== 'matchmaking') return
     setView({
@@ -103,8 +101,8 @@ export default function App() {
       roomId,
       gameType: v.gameType,
       wagerAmount: v.wagerAmount,
-      isPlayer1: isMe1,
-      opponentAddress: isMe1 ? player2 : player1,
+      isPlayer1: role === 'player1',
+      opponentAddress: '',
       isPrivate: false,
     })
   }, [address, view])
