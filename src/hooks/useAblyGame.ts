@@ -3,7 +3,7 @@ import Ably from 'ably';
 
 let ablyClient: Ably.Realtime | null = null;
 
-function getAbly(clientId: string): Ably.Realtime {
+export function getAbly(clientId: string): Ably.Realtime {
   if (!ablyClient) {
     ablyClient = new Ably.Realtime({
       authUrl: '/api/auth',

@@ -11,6 +11,7 @@ import { NumberGuessGame } from './games/NumberGuessGame'
 import { TicTacToeGame } from './games/TicTacToeGame'
 import type { GameType } from '../hooks/useGameServer'
 import { WAGER_GAME_ABI } from '../abi/WagerGame'
+import { getAbly } from '../hooks/useAblyGame'
 
 const ARC_TESTNET_CHAIN_ID = 5042002
 const USDC_FACT = getUsdc(ARC_TESTNET_CHAIN_ID)!
@@ -113,42 +114,42 @@ export function GameRoom({ address, chainId, roomId, gameType, wagerAmount, isPl
   const processedCreate = useRef<string | undefined>(undefined)
   const processedJoin = useRef<string | undefined>(undefined)
 
-  // Connect to Ably room channel for game sync
+  // Connect to Ably room channel for game sync — use shared singleton client
   useEffect(() => {
-    if (!roomId) return
-    let ch: import('ably').RealtimeChannel | null = null
+    if (!roomId || !address) return
     ablyReadyRef.current = false
 
-    void (async () => {
-      const Ably = await import('ably')
-      const client = new Ably.Realtime({ authUrl: '/api/auth', authParams: { clientId: address }, clientId: address })
-      ch = client.channels.get(`room:${roomId}`)
+    const client = getAbly(address)
+    const ch = client.channels.get(`room:${roomId}`)
 
-      void ch.subscribe('game_start', (msg) => {
-        setGameState(msg.data as GameState)
-        setTxPhase('game_active')
-      })
-      void ch.subscribe('game_state', (msg) => {
-        setGameState(msg.data as GameState)
-      })
-      void ch.subscribe('game_over', (msg) => {
-        const d = msg.data as { state: GameState; winner: string | null }
-        setGameState(d.state)
-        setLocalWinner(d.winner === null ? 'draw' : d.winner === myRole ? 'me' : 'opponent')
-        setTxPhase('game_over')
-      })
-      void ch.subscribe('opponent_ready', () => { setOpponentReady(true) })
+    void ch.subscribe('game_start', (msg) => {
+      setGameState(msg.data as GameState)
+      setTxPhase('game_active')
+    })
+    void ch.subscribe('game_state', (msg) => {
+      setGameState(msg.data as GameState)
+    })
+    void ch.subscribe('game_over', (msg) => {
+      const d = msg.data as { state: GameState; winner: string | null }
+      setGameState(d.state)
+      setLocalWinner(d.winner === null ? 'draw' : d.winner === myRole ? 'me' : 'opponent')
+      setTxPhase('game_over')
+    })
+    void ch.subscribe('opponent_ready', () => { setOpponentReady(true) })
 
-      ablyChannelRef.current = {
-        publish: (name: string, data: unknown) => ch!.publish(name, data),
-        unsubscribe: () => { ch?.unsubscribe() },
-      }
-      ablyReadyRef.current = true
-    })()
+    ablyChannelRef.current = {
+      publish: (name: string, data: unknown) => ch.publish(name, data),
+      unsubscribe: () => { ch.unsubscribe() },
+    }
+    ablyReadyRef.current = true
 
-    return () => { ch?.unsubscribe() }
+    return () => {
+      ch.unsubscribe()
+      ablyChannelRef.current = null
+      ablyReadyRef.current = false
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId])
+  }, [roomId, address])
 
   // Approve confirmed
   useEffect(() => {
@@ -180,14 +181,11 @@ export function GameRoom({ address, chainId, roomId, gameType, wagerAmount, isPl
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ roomId, player2: address }),
       })
-      // Start game for player2 immediately — no need to wait for Ably
-      const gs = initLocalState(gameType)
-      setGameState(gs)
-      setTxPhase('game_active')
-      // Signal player1 — retry until Ably channel is ready (it may still be connecting)
+      // Player2: request the canonical game state from Player1 via Ably
+      // Signal player1 — retry until Ably channel is ready
       const tryPublish = (attempts: number) => {
         if (ablyReadyRef.current && ablyChannelRef.current) {
-          void ablyChannelRef.current.publish('game_start', gs)
+          // Ask Player1 to send the canonical state (important for NUMBER_GUESS target)
           void ablyChannelRef.current.publish('opponent_ready', { player2: address })
         } else if (attempts > 0) {
           setTimeout(() => tryPublish(attempts - 1), 500)
@@ -198,13 +196,23 @@ export function GameRoom({ address, chainId, roomId, gameType, wagerAmount, isPl
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joinHash, joinSuccess])
 
-  // Player1: when opponent_ready fires, start game
+  // Player1: when opponent_ready fires, create canonical state and send to both
   useEffect(() => {
     if (isPlayer1 && opponentReady && txPhase === 'waiting_opponent') {
       const gs = initLocalState(gameType)
       setGameState(gs)
       setTxPhase('game_active')
+      // Send canonical state to Player2 — ensures both use same NUMBER_GUESS target etc.
+      const tryPublish = (attempts: number) => {
+        if (ablyChannelRef.current) {
+          void ablyChannelRef.current.publish('game_start', gs)
+        } else if (attempts > 0) {
+          setTimeout(() => tryPublish(attempts - 1), 300)
+        }
+      }
+      tryPublish(10)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlayer1, opponentReady, txPhase, gameType])
 
   const handleApprove = useCallback(() => {

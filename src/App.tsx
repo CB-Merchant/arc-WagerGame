@@ -35,21 +35,11 @@ export default function App() {
 
   const handlePublicMatch = useCallback((gameType: GameType, wagerAmount: string) => {
     if (!address) { toast.error('Connect your wallet first'); return }
-    if (chainId !== ARC_TESTNET_CHAIN_ID) {
-      switchChain({ chainId: ARC_TESTNET_CHAIN_ID })
-      toast.info('Switching to Arc Testnet...')
-      return
-    }
     setView({ type: 'matchmaking', gameType, wagerAmount, salt: '' })
-  }, [address, chainId, switchChain])
+  }, [address])
 
   const handlePrivateCreate = useCallback((gameType: GameType, wagerAmount: string) => {
     if (!address) { toast.error('Connect your wallet first'); return }
-    if (chainId !== ARC_TESTNET_CHAIN_ID) {
-      switchChain({ chainId: ARC_TESTNET_CHAIN_ID })
-      toast.info('Switching to Arc Testnet...')
-      return
-    }
     const roomId = generateRoomId(address, gameType)
     setView({
       type: 'room',
@@ -60,15 +50,10 @@ export default function App() {
       opponentAddress: '',
       isPrivate: true,
     })
-  }, [address, chainId, switchChain])
+  }, [address])
 
   const handlePrivateJoin = useCallback((roomCode: string) => {
     if (!address) { toast.error('Connect your wallet first'); return }
-    if (chainId !== ARC_TESTNET_CHAIN_ID) {
-      switchChain({ chainId: ARC_TESTNET_CHAIN_ID })
-      toast.info('Switching to Arc Testnet...')
-      return
-    }
     // Fetch room info from server — supports 4-digit PIN or full roomId
     fetch(`/api/room?id=${encodeURIComponent(roomCode)}`)
       .then(r => r.json())
@@ -90,7 +75,7 @@ export default function App() {
         })
       })
       .catch(() => toast.error('Could not reach server — check your connection'))
-  }, [address, chainId, switchChain])
+  }, [address])
 
   const handleMatchFound = useCallback((roomId: string, role: string, _opponent: string) => {
     if (!address) return
