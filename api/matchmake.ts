@@ -18,8 +18,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // Check Ably presence on the matchmaking channel for waiting players
       const queueChannel = ably.channels.get(`matchmaking:${gameType}:${wagerAmount}`);
-      const presence = await queueChannel.presence.get();
-      const others = presence.filter((m: { clientId: string }) => m.clientId !== playerId);
+      const presenceResult = await queueChannel.presence.get();
+      // REST presence.get() returns a PaginatedResult — get the items array
+      const members = Array.isArray(presenceResult) ? presenceResult
+        : (presenceResult as { items?: unknown[] }).items ?? [];
+      const others = (members as { clientId: string }[]).filter(m => m.clientId !== playerId);
 
       if (others.length > 0) {
         // Match with the first waiting player
