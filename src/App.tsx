@@ -207,7 +207,6 @@ export default function App() {
             <motion.div key="room" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
               <GameRoom
                 address={address ?? ''}
-                chainId={chainId ?? 0}
                 roomId={view.roomId}
                 gameType={view.gameType}
                 wagerAmount={view.wagerAmount}
