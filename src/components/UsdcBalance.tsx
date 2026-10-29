@@ -30,8 +30,10 @@ export function UsdcBalance({ address, chainId }: UsdcBalanceProps) {
     args: [address as `0x${string}`],
     chainId: ARC_TESTNET_CHAIN_ID,
     query: {
-      enabled: !!usdc && !!address && isRightChain,
+      // Enable even on wrong chain — Arc RPC works regardless
+      enabled: !!usdc && !!address,
       refetchInterval: 8_000,
+      staleTime: 5_000,
     },
   })
 
