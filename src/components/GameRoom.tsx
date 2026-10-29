@@ -62,8 +62,10 @@ export function GameRoom({ address, chainId, roomId, gameType, wagerAmount, isPl
   const [gameState, setGameState] = useState<GameState | null>(null)
   const [localWinner, setLocalWinner] = useState<'me' | 'opponent' | 'draw' | null>(null)
   const [opponentReady, setOpponentReady] = useState(false)
-  const [roomPin, setRoomPin] = useState<string | null>(null)
+  // Derive PIN client-side immediately — same formula as the server
+  const roomPin = (parseInt(roomId.slice(-6), 16) % 9000 + 1000).toString()
   const ablyChannelRef = useRef<{ publish: (name: string, data: unknown) => Promise<unknown>; unsubscribe: () => void } | null>(null)
+  const ablyReadyRef = useRef(false)
 
   const wagerBigInt = parseUnits(wagerAmount, USDC_DECIMALS)
   const isWrongChain = chainId !== ARC_TESTNET_CHAIN_ID
@@ -92,6 +94,7 @@ export function GameRoom({ address, chainId, roomId, gameType, wagerAmount, isPl
   useEffect(() => {
     if (!roomId) return
     let ch: import('ably').RealtimeChannel | null = null
+    ablyReadyRef.current = false
 
     void (async () => {
       const Ably = await import('ably')
@@ -117,6 +120,7 @@ export function GameRoom({ address, chainId, roomId, gameType, wagerAmount, isPl
         publish: (name: string, data: unknown) => ch!.publish(name, data),
         unsubscribe: () => { ch?.unsubscribe() },
       }
+      ablyReadyRef.current = true
     })()
 
     return () => { ch?.unsubscribe() }
@@ -135,11 +139,9 @@ export function GameRoom({ address, chainId, roomId, gameType, wagerAmount, isPl
   useEffect(() => {
     if (createHash && createSuccess && processedCreate.current !== createHash) {
       processedCreate.current = createHash
-      fetch('/api/create-room', {
+      void fetch('/api/create-room', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ gameType, wagerAmount, isPrivate, player1: address, onChainRoomId: roomId }),
-      }).then(r => r.json()).then((d: { pin?: string }) => {
-        if (d.pin) setRoomPin(d.pin)
       }).catch(() => null)
       setTxPhase('waiting_opponent')
     }
@@ -155,14 +157,20 @@ export function GameRoom({ address, chainId, roomId, gameType, wagerAmount, isPl
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ roomId, player2: address }),
       })
-      // Signal to player1 that opponent joined
-      void ablyChannelRef.current?.publish('opponent_ready', { player2: address })
-      // Start game for player2 immediately
+      // Start game for player2 immediately — no need to wait for Ably
       const gs = initLocalState(gameType)
       setGameState(gs)
       setTxPhase('game_active')
-      // Send game_start to player1 with initial state
-      void ablyChannelRef.current?.publish('game_start', gs)
+      // Signal player1 — retry until Ably channel is ready (it may still be connecting)
+      const tryPublish = (attempts: number) => {
+        if (ablyReadyRef.current && ablyChannelRef.current) {
+          void ablyChannelRef.current.publish('game_start', gs)
+          void ablyChannelRef.current.publish('opponent_ready', { player2: address })
+        } else if (attempts > 0) {
+          setTimeout(() => tryPublish(attempts - 1), 500)
+        }
+      }
+      tryPublish(10)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joinHash, joinSuccess])

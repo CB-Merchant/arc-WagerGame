@@ -40,13 +40,10 @@ export function UsdcBalance({ address, chainId }: UsdcBalanceProps) {
   if (!usdc) return null
 
   const display = (() => {
-    if (!isRightChain) return 'Wrong network'
-    if (isLoading) return 'Loading...'
+    if (isLoading) return '...'
     if (rawBalance === undefined) return '0.00'
     try {
-      // formatUsdc expects a raw 6-decimal bigint — format to 2dp
       const formatted = formatUsdc(rawBalance)
-      // formatUsdc returns e.g. "12.5" — pad to 2 decimal places
       const parts = formatted.split('.')
       const decimals = parts[1] ?? ''
       return `${parts[0]}.${decimals.padEnd(2, '0').slice(0, 2)}`
@@ -55,26 +52,23 @@ export function UsdcBalance({ address, chainId }: UsdcBalanceProps) {
     }
   })()
 
-  const isError = !isRightChain
-
   return (
     <div
       className="flex items-center gap-2 rounded-xl px-3 py-1.5"
       style={{
         background: 'rgba(255,255,255,0.72)',
         backdropFilter: 'blur(12px)',
-        border: `1.5px solid ${isError ? '#f59e0b' : 'rgba(255,255,255,0.8)'}`,
+        border: '1.5px solid rgba(255,255,255,0.8)',
       }}
     >
-      {/* Green dot when live */}
-      {!isError && (
-        <div className="h-1.5 w-1.5 rounded-full" style={{ background: isLoading ? '#f59e0b' : '#22c55e' }} />
-      )}
+      <div className="h-1.5 w-1.5 rounded-full" style={{ background: isLoading ? '#f59e0b' : '#22c55e' }} />
       <span className="text-xs font-medium" style={{ color: 'var(--muted)' }}>Balance</span>
-      <span className="text-sm font-bold" style={{ color: isError ? '#b45309' : 'var(--ink)' }}>
-        {display}
-        {!isError && <span className="ml-1 font-medium" style={{ color: 'var(--muted)' }}>USDC</span>}
+      <span className="text-sm font-bold" style={{ color: 'var(--ink)' }}>
+        {display} <span className="font-medium" style={{ color: 'var(--muted)' }}>USDC</span>
       </span>
+      {!isRightChain && (
+        <span className="text-xs" style={{ color: '#f59e0b' }}>⚠ Switch to Arc</span>
+      )}
     </div>
   )
 }
