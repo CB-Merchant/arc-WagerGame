@@ -28,9 +28,10 @@ export const TRIVIA_QUESTIONS = [
 ];
 
 export function generateRoomId(): string {
-  return Array.from(crypto.getRandomValues(new Uint8Array(16)))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
+  // Use Node.js crypto (available in Vercel serverless), not browser crypto
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { randomBytes } = require('crypto') as { randomBytes: (n: number) => Buffer };
+  return randomBytes(16).toString('hex');
 }
 
 export function initGameState(gameType: GameType) {
