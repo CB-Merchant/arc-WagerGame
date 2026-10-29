@@ -87,10 +87,10 @@ export function useAblyMatchmaking(playerId: string) {
       } catch { /* ignore transient errors */ }
     };
 
-    // First call immediately, then every 3s
+    // First call immediately, then every 2s
     await poll();
     if (!matchedRef.current) {
-      pollIntervalRef.current = setInterval(() => { void poll(); }, 3000);
+      pollIntervalRef.current = setInterval(() => { void poll(); }, 2000);
     }
   }, [playerId]);
 

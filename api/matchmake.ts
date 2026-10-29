@@ -16,40 +16,70 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: 'Missing required fields' });
       }
 
+      // 1. Check if this player was already matched (stored in their personal match channel)
+      const myMatchChannel = ably.channels.get(`match-result:${playerId}`);
+      const myHistory = await myMatchChannel.history({ limit: 5, direction: 'backwards' });
+      const myMatch = (myHistory.items as { name: string; data: { roomId: string; role: string; opponent: string; matchedAt: number } }[])
+        .find(m => m.name === 'matched' && Date.now() - m.data.matchedAt < 10 * 60 * 1000);
+
+      if (myMatch) {
+        // Already matched — return the stored result
+        return res.status(200).json({
+          status: 'matched',
+          roomId: myMatch.data.roomId,
+          role: myMatch.data.role,
+          opponent: myMatch.data.opponent,
+        });
+      }
+
       const queueChannelName = `queue:${gameType}:${wagerAmount}`;
       const queueChannel = ably.channels.get(queueChannelName);
 
-      // Check history for a waiting player (published in last 5 minutes)
-      const page = await queueChannel.history({ limit: 50, direction: 'backwards' });
-      const waiting = (page.items as { name: string; data: { playerId: string; queuedAt: number } }[])
-        .filter(m =>
-          m.name === 'queued' &&
-          m.data.playerId !== playerId &&
-          Date.now() - m.data.queuedAt < 5 * 60 * 1000 // within 5 minutes
-        );
+      // 2. Check queue history for a waiting opponent
+      const page = await queueChannel.history({ limit: 100, direction: 'backwards' });
+      const allMessages = page.items as { name: string; data: { playerId: string; queuedAt: number } }[];
 
-      if (waiting.length > 0) {
-        // Match with the most recent waiting player
-        const opponent = waiting[0].data.playerId;
-        const roomId = `0x${Date.now().toString(16)}${Math.floor(Math.random() * 0xffffff).toString(16)}`.padEnd(66, '0').slice(0, 66);
+      // Build set of dequeued players
+      const dequeued = new Set(
+        allMessages.filter(m => m.name === 'dequeued').map(m => m.data.playerId)
+      );
 
-        // Publish dequeue event so this opponent won't be matched again
+      // Find a valid waiting player that is not us and not dequeued
+      const waiting = allMessages.find(m =>
+        m.name === 'queued' &&
+        m.data.playerId !== playerId &&
+        !dequeued.has(m.data.playerId) &&
+        Date.now() - m.data.queuedAt < 10 * 60 * 1000
+      );
+
+      if (waiting) {
+        const opponent = waiting.data.playerId;
+        const roomId = `0x${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`.slice(0, 66).padEnd(66, '0');
+        const matchedAt = Date.now();
+
+        // Dequeue the opponent
         await queueChannel.publish('dequeued', { playerId: opponent });
+        // Dequeue ourselves too
+        await queueChannel.publish('dequeued', { playerId });
 
-        // Notify both players on their personal channels
-        await ably.channels.get(`player:${playerId}`).publish('matched', {
-          roomId, role: 'player2', opponent
+        // Store match result for BOTH players in their personal match channels
+        // so any poll can find it
+        await ably.channels.get(`match-result:${playerId}`).publish('matched', {
+          roomId, role: 'player2', opponent, matchedAt
         });
-        await ably.channels.get(`player:${opponent}`).publish('matched', {
-          roomId, role: 'player1', opponent: playerId
+        await ably.channels.get(`match-result:${opponent}`).publish('matched', {
+          roomId, role: 'player1', opponent: playerId, matchedAt
         });
+
+        // Also push via Realtime for instant notification (best-effort)
+        void ably.channels.get(`player:${playerId}`).publish('matched', { roomId, role: 'player2', opponent });
+        void ably.channels.get(`player:${opponent}`).publish('matched', { roomId, role: 'player1', opponent: playerId });
 
         return res.status(200).json({ status: 'matched', roomId, role: 'player2', opponent });
       }
 
-      // No match found — add this player to the queue via Ably history
+      // 3. No match — add to queue
       await queueChannel.publish('queued', { playerId, gameType, wagerAmount, queuedAt: Date.now() });
-
       return res.status(200).json({ status: 'queued' });
     }
 
@@ -58,8 +88,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         playerId: string; gameType: string; wagerAmount: string;
       };
       if (playerId && gameType && wagerAmount) {
-        const queueChannel = ably.channels.get(`queue:${gameType}:${wagerAmount}`);
-        await queueChannel.publish('dequeued', { playerId });
+        await ably.channels.get(`queue:${gameType}:${wagerAmount}`).publish('dequeued', { playerId });
       }
       return res.status(200).json({ status: 'cancelled' });
     }
