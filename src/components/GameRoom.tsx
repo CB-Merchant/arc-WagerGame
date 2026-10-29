@@ -102,7 +102,7 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
 
   // Connect to Ably room channel for game sync — use shared singleton client
   useEffect(() => {
-    if (!roomId || !address) return
+    if (!roomId || !address || !address.startsWith('0x')) return
     ablyReadyRef.current = false
 
     const client = getAbly(address)

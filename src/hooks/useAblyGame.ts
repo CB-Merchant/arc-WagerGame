@@ -2,14 +2,22 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import Ably from 'ably';
 
 let ablyClient: Ably.Realtime | null = null;
+let ablyClientId: string | null = null;
 
 export function getAbly(clientId: string): Ably.Realtime {
+  // Reset if the address changed (wallet switched or connected after anon)
+  if (ablyClient && ablyClientId !== clientId) {
+    ablyClient.close();
+    ablyClient = null;
+    ablyClientId = null;
+  }
   if (!ablyClient) {
     ablyClient = new Ably.Realtime({
       authUrl: '/api/auth',
       authParams: { clientId },
       clientId,
     });
+    ablyClientId = clientId;
   }
   return ablyClient;
 }
@@ -18,7 +26,8 @@ export function useOnlinePlayersAbly(playerId: string) {
   const [count, setCount] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!playerId) return;
+    // Don't connect until we have a real wallet address
+    if (!playerId || playerId === 'anon') return;
     const ably = getAbly(playerId);
     const channel = ably.channels.get('lobby');
 
