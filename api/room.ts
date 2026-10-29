@@ -12,28 +12,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const ably = new Ably.Rest(apiKey);
-    const channel = ably.channels.get(`room:${id}`);
 
-    // Retrieve the last room_created message from channel history
-    const page = await channel.history({ limit: 50, direction: 'backwards' });
-    const messages = page.items;
-
-    for (const msg of messages) {
-      if (msg.name === 'room_created') {
-        const data = msg.data as { room: unknown };
-        return res.status(200).json({ room: data.room, roomId: id });
-      }
-      if (msg.name === 'player_joined') {
-        // room state was updated — use this as most recent
+    // Check the room-specific channel history first
+    const roomChannel = ably.channels.get(`room:${id}`);
+    const roomPage = await roomChannel.history({ limit: 50, direction: 'backwards' });
+    for (const msg of roomPage.items) {
+      if (msg.name === 'room_created' || msg.name === 'player_joined') {
         const data = msg.data as { room: unknown };
         return res.status(200).json({ room: data.room, roomId: id });
       }
     }
 
-    // No history found — room may be too old or not created yet
+    // Fallback: check the lookup channel for this roomId
+    const lookupChannel = ably.channels.get('room-lookup');
+    const lookupPage = await lookupChannel.history({ limit: 100, direction: 'backwards' });
+    for (const msg of lookupPage.items) {
+      if (msg.name === id) {
+        const data = msg.data as { room: unknown };
+        return res.status(200).json({ room: data.room, roomId: id });
+      }
+    }
+
     return res.status(200).json({ room: null, roomId: id });
   } catch (err) {
-    console.error('Error fetching room from Ably:', err);
+    console.error('Error fetching room:', err);
     return res.status(500).json({ error: 'Failed to retrieve room' });
   }
 }

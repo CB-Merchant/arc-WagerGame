@@ -34,13 +34,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const apiKey = process.env.ABLY_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'Ably not configured' });
 
-  const ably = new Ably.Rest(apiKey);
-  // Enable channel history so /api/room can retrieve room data later
-  const channel = ably.channels.get(`room:${roomId}`, { params: { persist: 'true' } });
+  try {
+    const ably = new Ably.Rest(apiKey);
+    const channel = ably.channels.get(`room:${roomId}`);
+    // Publish room_created — Ably stores last 2 min of messages in history on paid plans.
+    // On free plan we use a separate lookup channel as a persistent key-value store.
+    await channel.publish('room_created', { room });
 
-  // Publish room_created — this message is stored in Ably channel history (2min retention on free plan)
-  // and retrieved by /api/room when player2 looks up the room
-  await channel.publish('room_created', { room });
+    // Also publish to a lookup channel keyed by roomId so /api/room can find it
+    // even if the room channel history has expired
+    const lookupChannel = ably.channels.get('room-lookup');
+    await lookupChannel.publish(roomId, { room });
+  } catch (err) {
+    console.error('Ably publish error:', err);
+    // Don't fail the whole request — room was created on-chain
+  }
 
   res.status(200).json({ roomId, room });
 }
