@@ -45,43 +45,58 @@ export function useAblyMatchmaking(playerId: string) {
   const [status, setStatus] = useState<'idle' | 'queued' | 'matched'>('idle');
   const [matchedRoom, setMatchedRoom] = useState<{ roomId: string; role: string } | null>(null);
 
+  const matchedRef = useRef(false);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const startMatchmaking = useCallback(async (gameType: string, wagerAmount: string) => {
     setStatus('queued');
+    matchedRef.current = false;
 
-    // Enter presence on the matchmaking queue channel so server can see us
+    // Listen on personal channel for server-pushed match notification
     const ably = getAbly(playerId);
-    const queueChannel = ably.channels.get(`matchmaking:${gameType}:${wagerAmount}`);
-    void queueChannel.presence.enter({ playerId, gameType, wagerAmount });
-
-    // Listen on our personal channel for a match
     const playerCh = ably.channels.get(`player:${playerId}`);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     void playerCh.subscribe('matched', (msg: any) => {
+      if (matchedRef.current) return;
+      matchedRef.current = true;
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       const d = msg.data as { roomId: string; role: string };
       setMatchedRoom({ roomId: d.roomId, role: d.role });
       setStatus('matched');
       playerCh.unsubscribe();
-      void queueChannel.presence.leave();
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     });
 
-    // Call server to attempt immediate match
-    const res = await fetch('/api/matchmake', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playerId, gameType, wagerAmount }),
-    });
-    const data = await res.json() as { status: string; roomId?: string; role?: string };
-    if (data.status === 'matched' && data.roomId) {
-      setMatchedRoom({ roomId: data.roomId, role: data.role ?? 'player2' });
-      setStatus('matched');
-      playerCh.unsubscribe();
-      void queueChannel.presence.leave();
+    // Poll server every 3s — server uses Ably history as the queue store
+    const poll = async () => {
+      if (matchedRef.current) return;
+      try {
+        const res = await fetch('/api/matchmake', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId, gameType, wagerAmount }),
+        });
+        const data = await res.json() as { status: string; roomId?: string; role?: string };
+        if (data.status === 'matched' && data.roomId && !matchedRef.current) {
+          matchedRef.current = true;
+          setMatchedRoom({ roomId: data.roomId, role: data.role ?? 'player2' });
+          setStatus('matched');
+          playerCh.unsubscribe();
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+        }
+      } catch { /* ignore transient errors */ }
+    };
+
+    // First call immediately, then every 3s
+    await poll();
+    if (!matchedRef.current) {
+      pollIntervalRef.current = setInterval(() => { void poll(); }, 3000);
     }
-    // Otherwise stay queued — Ably presence will notify the next player to join
   }, [playerId]);
 
   const cancelMatchmaking = useCallback(async (gameType: string, wagerAmount: string) => {
+    matchedRef.current = true; // stop polling
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     await fetch('/api/matchmake', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
