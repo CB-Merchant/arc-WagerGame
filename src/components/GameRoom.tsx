@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Copy, CheckCircle, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
-import { useWriteContract, useWaitForTransactionReceipt, useReadContract } from 'wagmi'
+import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useSwitchChain } from 'wagmi'
 import { erc20Abi, parseUnits, pad } from 'viem'
 import { getUsdc, buildTxExplorerUrl } from '@/onchain-facts'
 import { TriviaGame } from './games/TriviaGame'
@@ -67,9 +67,21 @@ export function GameRoom({ address, chainId, roomId, gameType, wagerAmount, isPl
   const ablyChannelRef = useRef<{ publish: (name: string, data: unknown) => Promise<unknown>; unsubscribe: () => void } | null>(null)
   const ablyReadyRef = useRef(false)
 
-  const wagerBigInt = parseUnits(wagerAmount, USDC_DECIMALS)
+  const wagerBigInt = parseUnits(String(parseFloat(wagerAmount) || 0), USDC_DECIMALS)
   const isWrongChain = chainId !== ARC_TESTNET_CHAIN_ID
-  const myRole = isPlayer1 ? 'p1' : 'p2'
+  const myRole: 'p1' | 'p2' = isPlayer1 ? 'p1' : 'p2'
+  const { switchChainAsync } = useSwitchChain()
+
+  const ensureChain = useCallback(async (): Promise<boolean> => {
+    if (!isWrongChain) return true
+    try {
+      await switchChainAsync({ chainId: ARC_TESTNET_CHAIN_ID })
+      return true
+    } catch {
+      toast.error('Please switch to Arc Testnet in your wallet')
+      return false
+    }
+  }, [isWrongChain, switchChainAsync])
 
   // Allowance check
   const { data: allowance } = useReadContract({
@@ -196,27 +208,32 @@ export function GameRoom({ address, chainId, roomId, gameType, wagerAmount, isPl
   }, [isPlayer1, opponentReady, txPhase, gameType])
 
   const handleApprove = useCallback(() => {
-    if (isWrongChain) { toast.error('Switch to Arc Testnet first'); return }
-    setTxPhase('approving')
-    approveUsdc({ address: USDC_ADDRESS, abi: erc20Abi, functionName: 'approve', args: [CONTRACT_ADDRESS, wagerBigInt], chainId: ARC_TESTNET_CHAIN_ID })
-  }, [isWrongChain, approveUsdc, wagerBigInt])
+    void (async () => {
+      if (!await ensureChain()) return
+      setTxPhase('approving')
+      approveUsdc({ address: USDC_ADDRESS, abi: erc20Abi, functionName: 'approve', args: [CONTRACT_ADDRESS, wagerBigInt], chainId: ARC_TESTNET_CHAIN_ID })
+    })()
+  }, [ensureChain, approveUsdc, wagerBigInt])
 
   const handleCreateRoom = useCallback(() => {
-    if (isWrongChain) { toast.error('Switch to Arc Testnet first'); return }
-    if (!CONTRACT_ADDRESS) { toast.error('Contract address not set'); return }
-    const saltBytes = pad(roomId as `0x${string}`, { size: 32 })
-    toast.info('Sending create room tx...')
-    createRoom({ address: CONTRACT_ADDRESS, abi: WAGER_GAME_ABI, functionName: 'createRoom',
-      args: [['TRIVIA', 'RPS', 'NUMBER_GUESS', 'TICTACTOE'].indexOf(gameType), wagerBigInt, isPrivate, saltBytes],
-      chainId: ARC_TESTNET_CHAIN_ID })
-    setTxPhase('creating_room')
-  }, [isWrongChain, createRoom, roomId, gameType, wagerBigInt, isPrivate])
+    void (async () => {
+      if (!await ensureChain()) return
+      if (!CONTRACT_ADDRESS) { toast.error('Contract address not configured'); return }
+      const saltBytes = pad(roomId as `0x${string}`, { size: 32 })
+      createRoom({ address: CONTRACT_ADDRESS, abi: WAGER_GAME_ABI, functionName: 'createRoom',
+        args: [['TRIVIA', 'RPS', 'NUMBER_GUESS', 'TICTACTOE'].indexOf(gameType), wagerBigInt, isPrivate, saltBytes],
+        chainId: ARC_TESTNET_CHAIN_ID })
+      setTxPhase('creating_room')
+    })()
+  }, [ensureChain, createRoom, roomId, gameType, wagerBigInt, isPrivate])
 
   const handleJoinRoom = useCallback(() => {
-    if (isWrongChain) { toast.error('Switch to Arc Testnet first'); return }
-    joinRoomOnChain({ address: CONTRACT_ADDRESS, abi: WAGER_GAME_ABI, functionName: 'joinRoom',
-      args: [roomId as `0x${string}`], chainId: ARC_TESTNET_CHAIN_ID })
-  }, [isWrongChain, joinRoomOnChain, roomId])
+    void (async () => {
+      if (!await ensureChain()) return
+      joinRoomOnChain({ address: CONTRACT_ADDRESS, abi: WAGER_GAME_ABI, functionName: 'joinRoom',
+        args: [roomId as `0x${string}`], chainId: ARC_TESTNET_CHAIN_ID })
+    })()
+  }, [ensureChain, joinRoomOnChain, roomId])
 
   // Handle a game move — update local state and broadcast to opponent
   const handleGameAction = useCallback((action: string, payload: unknown) => {
@@ -460,18 +477,16 @@ export function GameRoom({ address, chainId, roomId, gameType, wagerAmount, isPl
         {txPhase === 'game_active' && gameState && (
           <motion.div key="game" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             {gameState.type === 'TRIVIA' && (
-              /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment */
-              <TriviaGame state={gameState as any} myAddress={address} opponentAddress={opponentAddress} onAnswer={(i) => handleGameAction('answer', { answerIndex: i })} />
+              <TriviaGame state={gameState} myRole={myRole} questions={TRIVIA_QUESTIONS} onAnswer={(i) => handleGameAction('answer', { answerIndex: i })} />
             )}
             {gameState.type === 'RPS' && (
-              <RPSGame state={gameState as any} myAddress={address} opponentAddress={opponentAddress} onChoice={(c) => handleGameAction('choice', { choice: c })} />
+              <RPSGame state={gameState} myRole={myRole} onChoice={(c) => handleGameAction('choice', { choice: c })} />
             )}
             {gameState.type === 'NUMBER_GUESS' && (
-              <NumberGuessGame state={gameState as any} myAddress={address} opponentAddress={opponentAddress} onGuess={(g) => handleGameAction('guess', { guess: g })} />
+              <NumberGuessGame state={gameState} myRole={myRole} onGuess={(g) => handleGameAction('guess', { guess: g })} />
             )}
             {gameState.type === 'TICTACTOE' && (
-              <TicTacToeGame state={gameState as any} myAddress={address} opponentAddress={opponentAddress} onMove={(i) => handleGameAction('move', { index: i })} />
-              /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment */
+              <TicTacToeGame state={gameState} myRole={myRole} onMove={(i) => handleGameAction('move', { index: i })} />
             )}
           </motion.div>
         )}
