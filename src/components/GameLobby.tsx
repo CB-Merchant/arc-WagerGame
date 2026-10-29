@@ -190,18 +190,21 @@ export function GameLobby({ onPublicMatch, onPrivateCreate, onPrivateJoin }: Gam
     <div className="space-y-4">
       <button onClick={() => setMode('pick')} className="text-sm font-medium" style={{ color: 'var(--muted)' }}>← Back</button>
       <h2 className="display text-xl font-bold" style={{ color: 'var(--ink)' }}>Join with Code</h2>
-      <div className="rounded-2xl p-4" style={{ background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(16px)', border: '1.5px solid rgba(255,255,255,0.8)' }}>
-        <label className="mb-2 block text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--muted)' }}>Room Code</label>
+      <div className="rounded-2xl p-5 text-center" style={{ background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(16px)', border: '1.5px solid rgba(255,255,255,0.8)' }}>
+        <label className="mb-3 block text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--muted)' }}>4-Digit Room Code</label>
         <input
           value={roomCode}
-          onChange={(e) => setRoomCode(e.target.value)}
-          placeholder="Paste room code here..."
-          className="mono w-full rounded-xl bg-transparent p-3 text-sm outline-none"
+          onChange={(e) => setRoomCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+          placeholder="0000"
+          inputMode="numeric"
+          maxLength={4}
+          className="mono w-full rounded-xl bg-transparent py-3 text-center text-5xl font-black tracking-[0.3em] outline-none"
           style={{ background: 'var(--surface-muted)', color: 'var(--ink)' }}
         />
+        <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>Enter the 4-digit code from your friend</p>
       </div>
       <button
-        disabled={!roomCode.trim()}
+        disabled={roomCode.length !== 4}
         onClick={() => onPrivateJoin(roomCode.trim())}
         className="w-full rounded-2xl py-4 font-semibold disabled:opacity-40"
         style={{ background: 'var(--accent)', color: 'white' }}

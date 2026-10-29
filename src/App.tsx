@@ -70,28 +70,19 @@ export default function App() {
       toast.info('Switching to Arc Testnet...')
       return
     }
-    // Fetch room info from server to get wager and game type
+    // Fetch room info from server — supports 4-digit PIN or full roomId
     fetch(`/api/room?id=${encodeURIComponent(roomCode)}`)
       .then(r => r.json())
-      .then((d: { room?: { gameType: GameType; wagerAmount: string; player1: string } | null }) => {
+      .then((d: { room?: { id: string; gameType: GameType; wagerAmount: string; player1: string } | null; roomId?: string }) => {
         if (!d.room) {
-          // Room not in Ably history (may be old) — still allow joining with defaults
-          // The contract is the source of truth; player2 can join and game will start
-          toast.info('Joining room...')
-          setView({
-            type: 'room',
-            roomId: roomCode,
-            gameType: 'TRIVIA' as GameType,
-            wagerAmount: '5',
-            isPlayer1: false,
-            opponentAddress: '',
-            isPrivate: true,
-          })
+          toast.error('Room not found. Check the code and try again.')
           return
         }
+        // Use the real on-chain roomId returned by the server (PIN resolves to full id)
+        const resolvedRoomId = d.roomId ?? d.room.id
         setView({
           type: 'room',
-          roomId: roomCode,
+          roomId: resolvedRoomId,
           gameType: d.room.gameType,
           wagerAmount: d.room.wagerAmount,
           isPlayer1: false,

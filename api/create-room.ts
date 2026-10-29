@@ -26,8 +26,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    // Derive a 4-digit PIN from the roomId for easy sharing
+    const pin = (parseInt(roomId.slice(-6), 16) % 9000 + 1000).toString();
+
     const room = {
       id: roomId,
+      pin,
       gameType,
       wagerAmount,
       isPrivate,
@@ -45,12 +49,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const ably = new Ably.Rest(apiKey);
         await ably.channels.get(`room:${roomId}`).publish('room_created', { room });
         await ably.channels.get('room-lookup').publish(roomId, { room });
+        // Also index by PIN so player2 can join with just 4 digits
+        await ably.channels.get('pin-lookup').publish(pin, { room });
       } catch (ablyErr) {
         console.error('Ably error (non-fatal):', ablyErr);
       }
     }
 
-    return res.status(200).json({ roomId, room });
+    return res.status(200).json({ roomId, pin, room });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('create-room fatal:', msg);

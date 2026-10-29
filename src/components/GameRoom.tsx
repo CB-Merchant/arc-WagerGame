@@ -62,6 +62,7 @@ export function GameRoom({ address, chainId, roomId, gameType, wagerAmount, isPl
   const [gameState, setGameState] = useState<GameState | null>(null)
   const [localWinner, setLocalWinner] = useState<'me' | 'opponent' | 'draw' | null>(null)
   const [opponentReady, setOpponentReady] = useState(false)
+  const [roomPin, setRoomPin] = useState<string | null>(null)
   const ablyChannelRef = useRef<{ publish: (name: string, data: unknown) => Promise<unknown>; unsubscribe: () => void } | null>(null)
 
   const wagerBigInt = parseUnits(wagerAmount, USDC_DECIMALS)
@@ -134,10 +135,12 @@ export function GameRoom({ address, chainId, roomId, gameType, wagerAmount, isPl
   useEffect(() => {
     if (createHash && createSuccess && processedCreate.current !== createHash) {
       processedCreate.current = createHash
-      void fetch('/api/create-room', {
+      fetch('/api/create-room', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ gameType, wagerAmount, isPrivate, player1: address, onChainRoomId: roomId }),
-      })
+      }).then(r => r.json()).then((d: { pin?: string }) => {
+        if (d.pin) setRoomPin(d.pin)
+      }).catch(() => null)
       setTxPhase('waiting_opponent')
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -307,7 +310,7 @@ export function GameRoom({ address, chainId, roomId, gameType, wagerAmount, isPl
   }, [gameState, myRole, address, opponentAddress, roomId])
 
   const copyCode = () => {
-    void navigator.clipboard.writeText(roomId)
+    void navigator.clipboard.writeText(roomPin ?? roomId)
     setCopied(true)
     toast.success('Room code copied!')
     setTimeout(() => setCopied(false), 2000)
@@ -380,18 +383,20 @@ export function GameRoom({ address, chainId, roomId, gameType, wagerAmount, isPl
         {isPlayer1 && (txPhase === 'creating_room' || txPhase === 'waiting_opponent') && (
           <motion.div key="p1-wait" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-3">
             <div className="rounded-2xl p-4" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(16px)', border: '2px solid var(--accent)' }}>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--muted)' }}>
-                {isPrivate ? 'Your Room Code' : 'Room ID'}
+              <p className="mb-3 text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--muted)' }}>
+                Room Code
               </p>
-              <div className="flex items-center gap-2">
-                <p className="mono flex-1 overflow-hidden text-ellipsis text-xs font-bold" style={{ color: 'var(--ink)' }}>{roomId}</p>
-                <button onClick={copyCode} className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold" style={{ background: 'var(--accent)', color: 'white' }}>
-                  {copied ? <CheckCircle size={14} /> : <Copy size={14} />}
+              <div className="flex items-center justify-between gap-3">
+                <p className="mono text-5xl font-black tracking-[0.2em]" style={{ color: 'var(--ink)' }}>
+                  {roomPin ?? '····'}
+                </p>
+                <button onClick={copyCode} className="flex shrink-0 items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold" style={{ background: 'var(--accent)', color: 'white' }}>
+                  {copied ? <CheckCircle size={16} /> : <Copy size={16} />}
                   {copied ? 'Copied!' : 'Copy'}
                 </button>
               </div>
               <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>
-                {isPrivate ? 'Send this code to your friend' : 'Share this with anyone to join your game'}
+                Share this 4-digit code with your opponent
               </p>
             </div>
             <div className="flex items-center justify-center gap-2 rounded-2xl py-4" style={{ background: 'var(--surface-muted)' }}>
