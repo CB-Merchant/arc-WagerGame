@@ -28,10 +28,10 @@ export const TRIVIA_QUESTIONS = [
 ];
 
 export function generateRoomId(): string {
-  // Use Node.js crypto (available in Vercel serverless), not browser crypto
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { randomBytes } = require('crypto') as { randomBytes: (n: number) => Buffer };
-  return randomBytes(16).toString('hex');
+  // Use Math.random as UUID fallback — works in all runtimes
+  return 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'.replace(/x/g, () =>
+    Math.floor(Math.random() * 16).toString(16)
+  );
 }
 
 export function initGameState(gameType: GameType) {
