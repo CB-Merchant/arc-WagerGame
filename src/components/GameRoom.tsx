@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Copy, CheckCircle, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
-import { useWriteContract, useWaitForTransactionReceipt, useReadContract } from 'wagmi'
+import { useWriteContract, useWaitForTransactionReceipt, useReadContract, usePublicClient } from 'wagmi'
 import { erc20Abi, parseUnits, pad } from 'viem'
 import { getUsdc, buildTxExplorerUrl } from '@/onchain-facts'
 import { TriviaGame } from './games/TriviaGame'
@@ -61,14 +61,17 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
   const [gameState, setGameState] = useState<GameState | null>(null)
   const [localWinner, setLocalWinner] = useState<'me' | 'opponent' | 'draw' | null>(null)
   const [opponentReady, setOpponentReady] = useState(false)
-  // Derive PIN client-side immediately — same formula as the server
-  const roomPin = (parseInt(roomId.slice(-6), 16) % 9000 + 1000).toString()
+  // The real on-chain roomId — set after createRoom tx confirms from the RoomCreated event
+  const [onChainRoomId, setOnChainRoomId] = useState<string>(roomId)
+  // Derive PIN from the confirmed on-chain roomId
+  const roomPin = (parseInt(onChainRoomId.slice(-6), 16) % 9000 + 1000).toString()
   const ablyChannelRef = useRef<{ publish: (name: string, data: unknown) => Promise<unknown>; unsubscribe: () => void } | null>(null)
   const ablyReadyRef = useRef(false)
 
   const wagerFloat = Math.max(0, parseFloat(wagerAmount) || 0)
   const wagerBigInt = parseUnits(wagerFloat.toFixed(6), USDC_DECIMALS)
   const myRole: 'p1' | 'p2' = isPlayer1 ? 'p1' : 'p2'
+  const publicClient = usePublicClient({ chainId: ARC_TESTNET_CHAIN_ID })
 
   // Allowance check
   const { data: allowance } = useReadContract({
@@ -81,7 +84,7 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
   const { writeContract: approveUsdc, data: approveHash, isPending: isApproving, error: approveError } = useWriteContract()
   const { isSuccess: approveSuccess } = useWaitForTransactionReceipt({ hash: approveHash })
   const { writeContract: createRoom, data: createHash, isPending: isCreating, error: createError } = useWriteContract()
-  const { isSuccess: createSuccess } = useWaitForTransactionReceipt({ hash: createHash })
+  const { isSuccess: createSuccess, data: createReceipt } = useWaitForTransactionReceipt({ hash: createHash })
   const { writeContract: joinRoomOnChain, data: joinHash, isPending: isJoining, error: joinError } = useWriteContract()
   const { isSuccess: joinSuccess } = useWaitForTransactionReceipt({ hash: joinHash })
 
@@ -160,18 +163,19 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
     }
   }, [approveHash, approveSuccess])
 
-  // Create room confirmed — notify backend + wait for opponent
+  // Create room confirmed — notify backend with the real onChainRoomId (set by simulation above)
   useEffect(() => {
-    if (createHash && createSuccess && processedCreate.current !== createHash) {
+    if (createHash && createSuccess && createReceipt && processedCreate.current !== createHash) {
       processedCreate.current = createHash
+      // onChainRoomId was set by simulateContract in handleCreateRoom — use it directly
       void fetch('/api/create-room', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gameType, wagerAmount, isPrivate, player1: address, onChainRoomId: roomId }),
+        body: JSON.stringify({ gameType, wagerAmount, isPrivate, player1: address, onChainRoomId }),
       }).catch(() => null)
       setTxPhase('waiting_opponent')
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createHash, createSuccess])
+  }, [createHash, createSuccess, createReceipt])
 
   // Join room confirmed — notify backend, signal ready, start game locally
   useEffect(() => {
@@ -226,16 +230,31 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
   const handleCreateRoom = useCallback(() => {
     if (!CONTRACT_ADDRESS) { toast.error('Contract address not configured'); return }
     const saltBytes = pad(roomId as `0x${string}`, { size: 32 })
+    const gameTypeIndex = ['TRIVIA', 'RPS', 'NUMBER_GUESS', 'TICTACTOE'].indexOf(gameType)
     setTxPhase('creating_room')
-    createRoom({ address: CONTRACT_ADDRESS, abi: WAGER_GAME_ABI, functionName: 'createRoom',
-      args: [['TRIVIA', 'RPS', 'NUMBER_GUESS', 'TICTACTOE'].indexOf(gameType), wagerBigInt, isPrivate, saltBytes],
-      chainId: ARC_TESTNET_CHAIN_ID })
-  }, [createRoom, roomId, gameType, wagerBigInt, isPrivate])
+    void (async () => {
+      // Simulate first to get the returned roomId before the tx goes out
+      if (publicClient) {
+        try {
+          const { result } = await publicClient.simulateContract({
+            address: CONTRACT_ADDRESS, abi: WAGER_GAME_ABI, functionName: 'createRoom',
+            args: [gameTypeIndex, wagerBigInt, isPrivate, saltBytes],
+            account: address as `0x${string}`,
+          })
+          if (result) setOnChainRoomId(result)
+        } catch { /* simulation failed — proceed anyway, will correct after tx */ }
+      }
+      createRoom({ address: CONTRACT_ADDRESS, abi: WAGER_GAME_ABI, functionName: 'createRoom',
+        args: [gameTypeIndex, wagerBigInt, isPrivate, saltBytes],
+        chainId: ARC_TESTNET_CHAIN_ID })
+    })()
+  }, [createRoom, roomId, gameType, wagerBigInt, isPrivate, publicClient, address])
 
   const handleJoinRoom = useCallback(() => {
+    // Use onChainRoomId — this is the exact roomId the contract stored (resolved from server/Ably)
     joinRoomOnChain({ address: CONTRACT_ADDRESS, abi: WAGER_GAME_ABI, functionName: 'joinRoom',
-      args: [roomId as `0x${string}`], chainId: ARC_TESTNET_CHAIN_ID })
-  }, [joinRoomOnChain, roomId])
+      args: [onChainRoomId as `0x${string}`], chainId: ARC_TESTNET_CHAIN_ID })
+  }, [joinRoomOnChain, onChainRoomId])
 
   // Handle a game move — update local state and broadcast to opponent
   const handleGameAction = useCallback((action: string, payload: unknown) => {
