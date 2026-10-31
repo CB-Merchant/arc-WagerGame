@@ -163,17 +163,33 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
     }
   }, [approveHash, approveSuccess])
 
-  // Create room confirmed — notify backend with the real onChainRoomId (set by simulation above)
+  // Create room confirmed — derive real roomId from block timestamp, then notify backend
   useEffect(() => {
-    if (createHash && createSuccess && createReceipt && processedCreate.current !== createHash) {
-      processedCreate.current = createHash
-      // onChainRoomId was set by simulateContract in handleCreateRoom — use it directly
+    if (!createHash || !createSuccess || !createReceipt || processedCreate.current === createHash) return
+    processedCreate.current = createHash
+    void (async () => {
+      // The contract computes: roomId = keccak256(abi.encodePacked(salt, msg.sender, block.timestamp))
+      // We know salt (pad(roomId,32)), msg.sender (address), and can get block.timestamp from the RPC
+      let realRoomId = roomId
+      if (publicClient) {
+        try {
+          const block = await publicClient.getBlock({ blockNumber: createReceipt.blockNumber })
+          const saltBytes = pad(roomId as `0x${string}`, { size: 32 })
+          // Import keccak256 + encodePacked inline to reproduce contract logic
+          const { keccak256: keccak, encodePacked: encode } = await import('viem')
+          realRoomId = keccak(encode(
+            ['bytes32', 'address', 'uint256'],
+            [saltBytes, address as `0x${string}`, block.timestamp]
+          ))
+        } catch { /* use original roomId as fallback */ }
+      }
+      setOnChainRoomId(realRoomId)
       void fetch('/api/create-room', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gameType, wagerAmount, isPrivate, player1: address, onChainRoomId }),
+        body: JSON.stringify({ gameType, wagerAmount, isPrivate, player1: address, onChainRoomId: realRoomId }),
       }).catch(() => null)
       setTxPhase('waiting_opponent')
-    }
+    })()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createHash, createSuccess, createReceipt])
 
@@ -232,23 +248,10 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
     const saltBytes = pad(roomId as `0x${string}`, { size: 32 })
     const gameTypeIndex = ['TRIVIA', 'RPS', 'NUMBER_GUESS', 'TICTACTOE'].indexOf(gameType)
     setTxPhase('creating_room')
-    void (async () => {
-      // Simulate first to get the returned roomId before the tx goes out
-      if (publicClient) {
-        try {
-          const { result } = await publicClient.simulateContract({
-            address: CONTRACT_ADDRESS, abi: WAGER_GAME_ABI, functionName: 'createRoom',
-            args: [gameTypeIndex, wagerBigInt, isPrivate, saltBytes],
-            account: address as `0x${string}`,
-          })
-          if (result) setOnChainRoomId(result)
-        } catch { /* simulation failed — proceed anyway, will correct after tx */ }
-      }
-      createRoom({ address: CONTRACT_ADDRESS, abi: WAGER_GAME_ABI, functionName: 'createRoom',
-        args: [gameTypeIndex, wagerBigInt, isPrivate, saltBytes],
-        chainId: ARC_TESTNET_CHAIN_ID })
-    })()
-  }, [createRoom, roomId, gameType, wagerBigInt, isPrivate, publicClient, address])
+    createRoom({ address: CONTRACT_ADDRESS, abi: WAGER_GAME_ABI, functionName: 'createRoom',
+      args: [gameTypeIndex, wagerBigInt, isPrivate, saltBytes],
+      chainId: ARC_TESTNET_CHAIN_ID })
+  }, [createRoom, roomId, gameType, wagerBigInt, isPrivate])
 
   const handleJoinRoom = useCallback(() => {
     // Use onChainRoomId — this is the exact roomId the contract stored (resolved from server/Ably)
