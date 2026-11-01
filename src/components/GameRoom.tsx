@@ -118,13 +118,19 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
   const processedCreate = useRef<string | undefined>(undefined)
   const processedJoin = useRef<string | undefined>(undefined)
 
-  // Connect to Ably room channel for game sync — use shared singleton client
+  // Auto-advance to 'approved' if allowance already covers the wager — skip the approve step
   useEffect(() => {
-    if (!roomId || !address || !address.startsWith('0x')) return
+    if (hasAllowance && txPhase === 'idle') setTxPhase('approved')
+  }, [hasAllowance, txPhase])
+
+  // Connect to Ably room channel — resubscribe whenever onChainRoomId resolves
+  useEffect(() => {
+    if (!onChainRoomId || !address || !address.startsWith('0x')) return
     ablyReadyRef.current = false
 
     const client = getAbly(address)
-    const ch = client.channels.get(`room:${roomId}`)
+    const channelName = `room:${onChainRoomId}`
+    const ch = client.channels.get(channelName)
 
     void ch.subscribe('game_start', (msg) => {
       setGameState(msg.data as GameState)
@@ -153,7 +159,7 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
       ablyReadyRef.current = false
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, address])
+  }, [onChainRoomId, address])
 
   // Approve confirmed
   useEffect(() => {
@@ -197,10 +203,10 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
   useEffect(() => {
     if (joinHash && joinSuccess && processedJoin.current !== joinHash) {
       processedJoin.current = joinHash
-      // Notify backend player2 joined
+      // Notify backend player2 joined — use the real on-chain roomId
       void fetch('/api/join-room', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomId, player2: address }),
+        body: JSON.stringify({ roomId: onChainRoomId, player2: address }),
       })
       // Player2: request the canonical game state from Player1 via Ably
       // Signal player1 — retry until Ably channel is ready
