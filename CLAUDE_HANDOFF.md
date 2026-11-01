@@ -51,11 +51,29 @@ Vercel auto-deploys from the `main` branch. After pushing, wait ~2 minutes for t
 
 ## Smart Contract
 
+### Testnet (current live deployment)
 - **WagerGame.sol** deployed on Arc Testnet at `0xcdd8440b4de140078ce5bdcd0569b73a93627519`
 - Chain: Arc Testnet, Chain ID `5042002`, RPC `https://rpc.testnet.arc.io`
 - USDC address on Arc Testnet: `0x3600000000000000000000000000000000000000` (6 decimals)
 - Constructor args: `usdcToken=0x3600...`, `resolver=0x5B12Ce46C7194aD57d143bC22847224047b1Ef42`, `feeRecipient=0x5B12Ce46C7194aD57d143bC22847224047b1Ef42`, `feeBps=200`
 - ABI is embedded in `src/abi/WagerGame.ts` — do NOT change this file unless the contract is redeployed
+
+### Mainnet (pending deploy)
+- Chain: Arc Mainnet, Chain ID `5042001`, RPC `https://rpc.mainnet.arc.io`
+- USDC address on Arc Mainnet: `0x3600000000000000000000000000000000000000` (6 decimals)
+- Resolver: `0xeFc8E1d285055Df4A84eC5603435D93c6749eb14`
+- Fee Recipient: `0x4aC6279750C20a5839dceAB09BD79f4A55777a37`
+- feeBps: `200` (2%)
+- Contract not yet deployed — owner must run `forge create` from their own wallet
+
+### Contract security changes (applied this session — not yet on testnet deployment)
+The source in `contracts/WagerGame.sol` has been updated with these fixes. The testnet deployment is the old version. Mainnet must use the current source.
+
+1. **Pull-payment**: `resolveGame`, `cancelRoom`, `claimTimeout` now credit `pendingWithdrawals[address]` instead of pushing USDC. Players call `withdraw()` to claim.
+2. **Ownable2Step**: ownership transfer requires the new owner to call `acceptOwnership()`.
+3. **Resolver timelock**: `setResolver` queues a 48-hour delay; `applyResolver()` completes it.
+4. **Fee timelock**: `setFeeBps` queues a 24-hour delay; `applyFeeBps()` completes it. `pendingFeeSet` bool prevents calling `applyFeeBps` before a change is staged.
+5. **62 unit tests** in `contracts/test/` all pass. Run with `forge test`.
 
 ---
 
@@ -171,8 +189,17 @@ api/
 - Game state lives entirely in `GameRoom.tsx` — no server needed for moves
 - Each player sends moves to Ably, which broadcasts to the opponent
 - `handleGameAction` updates local state and publishes `game_state` to `room:<roomId>`
-- When the game ends, the winner's client calls POST `/api/resolve` (currently just logs on testnet)
+- When the game ends, the winner's client calls POST `/api/resolve` (currently just logs on testnet — must be updated for mainnet to call `resolveGame` on-chain)
 - Game state keys use `p1` and `p2` — NOT wallet addresses
+
+### Payout Flow (New — Pull Payment)
+
+The updated contract uses pull-payment. After `resolveGame` is called by the resolver:
+1. Winner's balance is credited in `pendingWithdrawals[winner]`
+2. Winner must call `withdraw()` on the contract to receive their USDC
+3. The frontend does NOT yet call `withdraw()` automatically — this needs to be wired in `GameRoom.tsx` at the `game_over` phase: detect `pendingWithdrawals[address] > 0` and show a "Claim Winnings" button that calls `withdraw()`.
+
+**This is the most important missing piece for mainnet.**
 
 ---
 
@@ -296,6 +323,15 @@ If it returns `queued` both times, Ably history isn't persisting. Check Ably das
 
 ---
 
+## Game Rules (As Of Latest Commit)
+
+| Game | Rules |
+|---|---|
+| Trivia | 20 blockchain questions, simultaneous answer, most correct wins |
+| Rock Paper Scissors | Best of 10 rounds, first to 6 wins ends early |
+| Number Duel | Up to 20 rounds, simultaneous guesses 1–100, hot/cold hints, first exact guess wins; tiebreak by total distance |
+| Tic-Tac-Toe | Classic 3-in-a-row |
+
 ## What Is Working (As Of Latest Commit)
 
 - Contract deployed and verified on Arc Testnet
@@ -307,12 +343,15 @@ If it returns `queued` both times, Ably history isn't persisting. Check Ably das
 - 4-digit PIN derived instantly client-side
 - Chain-switch is triggered by `chainId` param on `writeContract`
 - `AnimatePresence` removed from GameRoom (was causing blank screen)
+- Number Duel white screen fixed: safe fallbacks on `currentGuesses`/`history` fields
+- RPS changed to best of 10 (early exit at 6 wins)
 
 ## What Is Not Yet Verified Working
 
 - PC MetaMask flow end-to-end (blank screen may still occur — see Known Issues #1 and #3)
 - Matchmaking with two real wallets (see Known Issues #4)
 - Game playing through to completion and resolving on-chain
+- Mainnet contract not yet deployed — see Smart Contract section above
 
 ---
 
