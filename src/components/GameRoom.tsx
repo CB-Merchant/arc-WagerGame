@@ -43,7 +43,7 @@ type GameState = TriviaState | RPSState | NumberState | TicTacToeState
 function initLocalState(gameType: GameType): GameState {
   switch (gameType) {
     case 'TRIVIA': return { type: 'TRIVIA', questionIndex: 0, scores: { p1: 0, p2: 0 }, answered: { p1: false, p2: false } }
-    case 'RPS': return { type: 'RPS', round: 1, maxRounds: 5, scores: { p1: 0, p2: 0 }, moves: { p1: null, p2: null } }
+    case 'RPS': return { type: 'RPS', round: 1, maxRounds: 10, scores: { p1: 0, p2: 0 }, moves: { p1: null, p2: null } }
     case 'NUMBER_GUESS': return { type: 'NUMBER_GUESS', target: Math.floor(Math.random() * 100) + 1, round: 1, maxRounds: 20, history: [], currentGuesses: { p1: null, p2: null } }
     case 'TICTACTOE': return { type: 'TICTACTOE', board: Array(9).fill(null) as (string | null)[], currentTurn: 'p1', winner: null }
   }
@@ -344,7 +344,7 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
         }
         const round = s.round + 1
         const roundState: RPSState = { ...s, scores: newScores }
-        if (round > s.maxRounds || newScores.p1 > 2 || newScores.p2 > 2) {
+        if (round > s.maxRounds || newScores.p1 > 5 || newScores.p2 > 5) {
           const w = newScores.p1 > newScores.p2 ? 'p1' : newScores.p2 > newScores.p1 ? 'p2' : null
           resolveWinner(w, roundState)
         } else {
