@@ -54,6 +54,21 @@ const TRIVIA_QUESTIONS = [
   { q: 'What company issues USDC?', options: ['Coinbase', 'Circle', 'Binance', 'Tether'], answer: 1 },
   { q: 'What is the ERC standard for fungible tokens?', options: ['ERC-721', 'ERC-1155', 'ERC-20', 'ERC-4337'], answer: 2 },
   { q: 'What does CCTP stand for?', options: ['Cross-Chain Transfer Protocol', 'Crypto Coin Transfer Program', 'Circle Cross Transfer Process', 'Chain Currency Transfer Protocol'], answer: 0 },
+  { q: 'What consensus mechanism does Ethereum use after The Merge?', options: ['Proof of Work', 'Proof of Stake', 'Delegated Proof of Stake', 'Proof of Authority'], answer: 1 },
+  { q: 'What is a smart contract?', options: ['A legal document stored on a server', 'Self-executing code stored on a blockchain', 'A cryptocurrency wallet', 'A type of NFT'], answer: 1 },
+  { q: 'Which token standard is used for NFTs on Ethereum?', options: ['ERC-20', 'ERC-721', 'ERC-1155', 'ERC-4626'], answer: 1 },
+  { q: 'What does DeFi stand for?', options: ['Decentralized Finance', 'Digital Finance', 'Distributed Fiat', 'Defined Finance'], answer: 0 },
+  { q: 'What is a blockchain gas fee?', options: ['A fee paid to miners/validators to process transactions', 'A subscription fee for using a blockchain', 'A fee paid to the token issuer', 'A tax on crypto profits'], answer: 0 },
+  { q: 'What does EVM stand for?', options: ['Ethereum Virtual Machine', 'Electronic Value Mechanism', 'Encrypted Value Manager', 'Ethereum Verification Module'], answer: 0 },
+  { q: 'What is the maximum supply of Bitcoin?', options: ['100 million', '21 million', '10 million', 'Unlimited'], answer: 1 },
+  { q: 'What is a seed phrase used for?', options: ['Mining new tokens', 'Recovering a crypto wallet', 'Signing smart contracts', 'Paying gas fees'], answer: 1 },
+  { q: 'Which blockchain is Arc built on top of?', options: ['Ethereum', 'Solana', 'Circle\'s own EVM chain', 'Polygon'], answer: 2 },
+  { q: 'What does DAO stand for?', options: ['Decentralized Autonomous Organization', 'Digital Asset Offering', 'Distributed Accounting Operation', 'Delegated Approval Office'], answer: 0 },
+  { q: 'What is an AMM in DeFi?', options: ['Automated Market Maker', 'Asset Management Module', 'Algorithmic Mining Method', 'Approved Minting Mechanism'], answer: 0 },
+  { q: 'What is the purpose of a liquidity pool?', options: ['To store NFTs', 'To enable decentralized token swaps', 'To validate blockchain transactions', 'To issue stablecoins'], answer: 1 },
+  { q: 'What does TVL stand for in DeFi?', options: ['Total Value Locked', 'Token Velocity Limit', 'Transaction Volume Ledger', 'Total Verified Liquidity'], answer: 0 },
+  { q: 'What is a cold wallet?', options: ['A wallet with low balance', 'An offline hardware wallet for secure storage', 'A wallet on a slow blockchain', 'A deprecated wallet address'], answer: 1 },
+  { q: 'What is the role of a blockchain oracle?', options: ['To mine new blocks', 'To bring real-world data onto the blockchain', 'To validate wallet addresses', 'To issue stablecoins'], answer: 1 },
 ]
 
 export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, opponentAddress, isPrivate, isMatchmaking, onLeave }: GameRoomProps) {
