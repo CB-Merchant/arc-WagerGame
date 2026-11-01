@@ -26,6 +26,7 @@ interface GameRoomProps {
   isPlayer1: boolean
   opponentAddress: string
   isPrivate: boolean
+  isMatchmaking?: boolean   // true = matched via public queue, skip room-code UI
   onLeave: () => void
 }
 
@@ -55,7 +56,7 @@ const TRIVIA_QUESTIONS = [
   { q: 'What does CCTP stand for?', options: ['Cross-Chain Transfer Protocol', 'Crypto Coin Transfer Program', 'Circle Cross Transfer Process', 'Chain Currency Transfer Protocol'], answer: 0 },
 ]
 
-export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, opponentAddress, isPrivate, onLeave }: GameRoomProps) {
+export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, opponentAddress, isPrivate, isMatchmaking, onLeave }: GameRoomProps) {
   const [txPhase, setTxPhase] = useState<TxPhase>('idle')
   const [copied, setCopied] = useState(false)
   const [gameState, setGameState] = useState<GameState | null>(null)
@@ -417,8 +418,42 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
         <p className="mt-0.5 text-xs opacity-60">{wagerAmount} each · 2% platform fee</p>
       </div>
 
-      {/* ── PLAYER 1: Step 1 — Approve ── */}
-      {isPlayer1 && (txPhase === 'idle' || txPhase === 'approving') && (
+      {/* ── MATCHMAKING: single approve+play card for both players ── */}
+      {isMatchmaking && (txPhase === 'idle' || txPhase === 'approving') && (
+        <StepCard step={1} active>
+          <p className="font-semibold" style={{ color: 'var(--ink)' }}>{isPlayer1 ? 'Lock Wager & Create Room' : 'Lock Wager & Join'}</p>
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>Opponent found! Lock your {wagerAmount} USDC to start.</p>
+          <button onClick={hasAllowance ? () => setTxPhase('approved') : handleApprove} disabled={isApproving}
+            className="mt-3 w-full rounded-xl py-3 font-semibold disabled:opacity-50" style={{ background: 'var(--accent)', color: 'white' }}>
+            {isApproving ? 'Confirm in wallet...' : hasAllowance ? 'Allowance ready — continue' : `Approve ${wagerAmount} USDC`}
+          </button>
+        </StepCard>
+      )}
+
+      {/* ── MATCHMAKING: auto-create/join after approve ── */}
+      {isMatchmaking && txPhase === 'approved' && (
+        <StepCard step={2} active>
+          <p className="font-semibold" style={{ color: 'var(--ink)' }}>{isPlayer1 ? 'Create Room on-chain' : 'Join Room on-chain'}</p>
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>Lock your {wagerAmount} USDC wager</p>
+          <button onClick={isPlayer1 ? handleCreateRoom : handleJoinRoom} disabled={isCreating || isJoining}
+            className="mt-3 w-full rounded-xl py-3 font-semibold disabled:opacity-50" style={{ background: 'var(--accent)', color: 'white' }}>
+            {(isCreating || isJoining) ? 'Confirm in wallet...' : isPlayer1 ? 'Create & Play' : 'Join & Play'}
+          </button>
+        </StepCard>
+      )}
+
+      {/* ── MATCHMAKING: waiting for P2 to join after P1 creates ── */}
+      {isMatchmaking && isPlayer1 && (txPhase === 'creating_room' || txPhase === 'waiting_opponent') && (
+        <div className="flex items-center justify-center gap-2 rounded-2xl py-5" style={{ background: 'var(--surface-muted)' }}>
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-transparent" style={{ borderTopColor: 'var(--accent)' }} />
+          <p className="text-sm font-medium" style={{ color: 'var(--ink)' }}>
+            {txPhase === 'creating_room' ? 'Confirming on-chain...' : 'Waiting for opponent to lock wager...'}
+          </p>
+        </div>
+      )}
+
+      {/* ── PRIVATE ROOM PLAYER 1: Step 1 — Approve ── */}
+      {!isMatchmaking && isPlayer1 && (txPhase === 'idle' || txPhase === 'approving') && (
         <div className="space-y-3">
           <StepCard step={1} active>
             <p className="font-semibold" style={{ color: 'var(--ink)' }}>Approve USDC</p>
@@ -433,8 +468,8 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
         </div>
       )}
 
-      {/* ── PLAYER 1: Step 2 — Create Room ── */}
-      {isPlayer1 && txPhase === 'approved' && (
+      {/* ── PRIVATE ROOM PLAYER 1: Step 2 — Create Room ── */}
+      {!isMatchmaking && isPlayer1 && txPhase === 'approved' && (
         <div className="space-y-3">
           <StepCard step={1} done><p className="text-sm" style={{ color: 'var(--success)' }}>USDC approved</p></StepCard>
           <StepCard step={2} active>
@@ -448,8 +483,8 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
         </div>
       )}
 
-      {/* ── PLAYER 1: Step 3 — Waiting ── */}
-      {isPlayer1 && (txPhase === 'creating_room' || txPhase === 'waiting_opponent') && (
+      {/* ── PRIVATE ROOM PLAYER 1: Step 3 — Waiting ── */}
+      {!isMatchmaking && isPlayer1 && (txPhase === 'creating_room' || txPhase === 'waiting_opponent') && (
         <div className="space-y-3">
           <div className="rounded-2xl p-4" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(16px)', border: '2px solid var(--accent)' }}>
             <p className="mb-3 text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--muted)' }}>Your Room Code</p>
@@ -471,8 +506,8 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
         </div>
       )}
 
-      {/* ── PLAYER 2: Step 1 — Approve ── */}
-      {!isPlayer1 && (txPhase === 'idle' || txPhase === 'approving') && (
+      {/* ── PRIVATE ROOM PLAYER 2: Step 1 — Approve ── */}
+      {!isMatchmaking && !isPlayer1 && (txPhase === 'idle' || txPhase === 'approving') && (
         <StepCard step={1} active>
           <p className="font-semibold" style={{ color: 'var(--ink)' }}>Approve USDC</p>
           <p className="text-sm" style={{ color: 'var(--muted)' }}>Allow the contract to hold your {wagerAmount} USDC wager</p>
@@ -483,8 +518,8 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
         </StepCard>
       )}
 
-      {/* ── PLAYER 2: Step 2 — Join ── */}
-      {!isPlayer1 && txPhase === 'approved' && (
+      {/* ── PRIVATE ROOM PLAYER 2: Step 2 — Join ── */}
+      {!isMatchmaking && !isPlayer1 && txPhase === 'approved' && (
         <StepCard step={2} active>
           <p className="font-semibold" style={{ color: 'var(--ink)' }}>Join Room on-chain</p>
           <p className="text-sm" style={{ color: 'var(--muted)' }}>Lock your {wagerAmount} USDC wager and start the game</p>

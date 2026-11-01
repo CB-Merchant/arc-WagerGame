@@ -25,7 +25,7 @@ function generateRoomId(address: string, _gameType: GameType): string {
 type AppView =
   | { type: 'lobby' }
   | { type: 'matchmaking'; gameType: GameType; wagerAmount: string; salt: string }
-  | { type: 'room'; roomId: string; gameType: GameType; wagerAmount: string; isPlayer1: boolean; opponentAddress: string; isPrivate: boolean }
+  | { type: 'room'; roomId: string; gameType: GameType; wagerAmount: string; isPlayer1: boolean; opponentAddress: string; isPrivate: boolean; isMatchmaking?: boolean }
 
 export default function App() {
   const { address, chainId, isConnected } = useAccount()
@@ -89,6 +89,7 @@ export default function App() {
       isPlayer1: role === 'player1',
       opponentAddress: '',
       isPrivate: false,
+      isMatchmaking: true,
     })
   }, [address, view])
 
@@ -213,6 +214,7 @@ export default function App() {
                 isPlayer1={view.isPlayer1}
                 opponentAddress={view.opponentAddress}
                 isPrivate={view.isPrivate}
+                isMatchmaking={view.isMatchmaking}
                 onLeave={() => setView({ type: 'lobby' })}
               />
             </motion.div>
