@@ -35,7 +35,8 @@ type TxPhase = 'idle' | 'approving' | 'approved' | 'creating_room' | 'waiting_op
 // Local game state types
 interface TriviaState { type: 'TRIVIA'; questionIndex: number; scores: { p1: number; p2: number }; answered: { p1: boolean; p2: boolean } }
 interface RPSState { type: 'RPS'; round: number; maxRounds: number; scores: { p1: number; p2: number }; moves: { p1: string | null; p2: string | null } }
-interface NumberState { type: 'NUMBER_GUESS'; target: number; guesses: { p1: number | null; p2: number | null } }
+interface NumberRound { p1: number | null; p2: number | null }
+interface NumberState { type: 'NUMBER_GUESS'; target: number; round: number; maxRounds: number; history: NumberRound[]; currentGuesses: { p1: number | null; p2: number | null } }
 interface TicTacToeState { type: 'TICTACTOE'; board: (string | null)[]; currentTurn: 'p1' | 'p2'; winner: string | null }
 type GameState = TriviaState | RPSState | NumberState | TicTacToeState
 
@@ -43,7 +44,7 @@ function initLocalState(gameType: GameType): GameState {
   switch (gameType) {
     case 'TRIVIA': return { type: 'TRIVIA', questionIndex: 0, scores: { p1: 0, p2: 0 }, answered: { p1: false, p2: false } }
     case 'RPS': return { type: 'RPS', round: 1, maxRounds: 5, scores: { p1: 0, p2: 0 }, moves: { p1: null, p2: null } }
-    case 'NUMBER_GUESS': return { type: 'NUMBER_GUESS', target: Math.floor(Math.random() * 100) + 1, guesses: { p1: null, p2: null } }
+    case 'NUMBER_GUESS': return { type: 'NUMBER_GUESS', target: Math.floor(Math.random() * 100) + 1, round: 1, maxRounds: 20, history: [], currentGuesses: { p1: null, p2: null } }
     case 'TICTACTOE': return { type: 'TICTACTOE', board: Array(9).fill(null) as (string | null)[], currentTurn: 'p1', winner: null }
   }
 }
@@ -196,7 +197,7 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
         }
         if (prev.type === 'NUMBER_GUESS' && action === 'guess') {
           const s = prev
-          return { ...s, guesses: { ...s.guesses, [role]: data.guess as number } }
+          return { ...s, currentGuesses: { ...s.currentGuesses, [role]: data.guess as number } }
         }
         return prev
       })
@@ -288,11 +289,33 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
     if (!isPlayer1 || !gameState || txPhase !== 'game_active') return
     if (gameState.type === 'NUMBER_GUESS') {
       const s = gameState
-      if (s.guesses.p1 !== null && s.guesses.p2 !== null) {
-        const d1 = Math.abs(s.guesses.p1 - s.target)
-        const d2 = Math.abs(s.guesses.p2 - s.target)
-        const w = d1 < d2 ? 'p1' : d2 < d1 ? 'p2' : null
-        resolveWinner(w, s)
+      const { p1, p2 } = s.currentGuesses
+      if (p1 !== null && p2 !== null) {
+        // Both guessed this round — check for exact hit or advance round
+        const newHistory = [...s.history, { p1, p2 }]
+        // Exact win
+        const p1Exact = p1 === s.target
+        const p2Exact = p2 === s.target
+        if (p1Exact || p2Exact) {
+          const w = p1Exact && !p2Exact ? 'p1' : p2Exact && !p1Exact ? 'p2' : null
+          const final: NumberState = { ...s, history: newHistory, currentGuesses: { p1, p2 } }
+          resolveWinner(w, final)
+          return
+        }
+        // Last round — resolve by total closest distance across all rounds
+        if (s.round >= s.maxRounds) {
+          const allRounds = newHistory
+          const totalD1 = allRounds.reduce((acc, r) => acc + Math.abs((r.p1 ?? 0) - s.target), 0)
+          const totalD2 = allRounds.reduce((acc, r) => acc + Math.abs((r.p2 ?? 0) - s.target), 0)
+          const w = totalD1 < totalD2 ? 'p1' : totalD2 < totalD1 ? 'p2' : null
+          const final: NumberState = { ...s, history: newHistory, currentGuesses: { p1, p2 } }
+          resolveWinner(w, final)
+          return
+        }
+        // Advance to next round
+        const next: NumberState = { ...s, round: s.round + 1, history: newHistory, currentGuesses: { p1: null, p2: null } }
+        setGameState(next)
+        void ablyChannelRef.current?.publish('game_state', next)
       }
     }
     if (gameState.type === 'TRIVIA') {
@@ -447,17 +470,11 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
 
     if (gameState.type === 'NUMBER_GUESS' && action === 'guess') {
       const state = gameState
+      if (state.currentGuesses[myRole] !== null) return  // already guessed this round
       const guess = (payload as { guess: number }).guess
       void ablyChannelRef.current?.publish('player_move', { role: myRole, action: 'guess', guess })
-      const newGuesses = { ...state.guesses, [myRole]: guess }
-      const newState: NumberState = { ...state, guesses: newGuesses }
+      const newState: NumberState = { ...state, currentGuesses: { ...state.currentGuesses, [myRole]: guess } }
       setGameState(newState)
-      if (newGuesses.p1 !== null && newGuesses.p2 !== null && isPlayer1) {
-        const d1 = Math.abs(newGuesses.p1 - state.target)
-        const d2 = Math.abs(newGuesses.p2 - state.target)
-        const w = d1 < d2 ? 'p1' : d2 < d1 ? 'p2' : null
-        resolveWinner(w, newState)
-      }
       return
     }
 

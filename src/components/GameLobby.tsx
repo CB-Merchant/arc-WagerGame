@@ -13,7 +13,7 @@ interface GameLobbyProps {
 const GAMES: { type: GameType; label: string; description: string; icon: string }[] = [
   { type: 'TRIVIA', label: 'Trivia', description: '20 blockchain questions, fastest & most correct wins', icon: '?' },
   { type: 'RPS', label: 'Rock Paper Scissors', description: 'Best of 5 rounds, pick your throw', icon: '✊' },
-  { type: 'NUMBER_GUESS', label: 'Number Duel', description: 'Guess 1–100 closest to the target wins', icon: '#' },
+  { type: 'NUMBER_GUESS', label: 'Number Duel', description: 'Up to 20 rounds, guess 1–100 with hot/cold hints', icon: '#' },
   { type: 'TICTACTOE', label: 'Tic-Tac-Toe', description: 'Classic 3-in-a-row strategy game', icon: '×' },
 ]
 
