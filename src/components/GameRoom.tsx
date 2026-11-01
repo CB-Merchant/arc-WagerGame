@@ -197,7 +197,8 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
         }
         if (prev.type === 'NUMBER_GUESS' && action === 'guess') {
           const s = prev
-          return { ...s, currentGuesses: { ...s.currentGuesses, [role]: data.guess as number } }
+          const cg = s.currentGuesses ?? { p1: null, p2: null }
+          return { ...s, currentGuesses: { ...cg, [role]: data.guess as number } }
         }
         return prev
       })
@@ -289,10 +290,11 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
     if (!isPlayer1 || !gameState || txPhase !== 'game_active') return
     if (gameState.type === 'NUMBER_GUESS') {
       const s = gameState
-      const { p1, p2 } = s.currentGuesses
+      const cg = s.currentGuesses ?? { p1: null, p2: null }
+      const { p1, p2 } = cg
       if (p1 !== null && p2 !== null) {
         // Both guessed this round — check for exact hit or advance round
-        const newHistory = [...s.history, { p1, p2 }]
+        const newHistory = [...(s.history ?? []), { p1, p2 }]
         // Exact win
         const p1Exact = p1 === s.target
         const p2Exact = p2 === s.target
@@ -470,11 +472,13 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
 
     if (gameState.type === 'NUMBER_GUESS' && action === 'guess') {
       const state = gameState
-      if (state.currentGuesses[myRole] !== null) return  // already guessed this round
+      const cg = state.currentGuesses ?? { p1: null, p2: null }
+      if (cg[myRole] !== null) return  // already guessed this round
       const guess = (payload as { guess: number }).guess
+      // Publish move — P1's resolution effect will handle the rest for both players
       void ablyChannelRef.current?.publish('player_move', { role: myRole, action: 'guess', guess })
-      const newState: NumberState = { ...state, currentGuesses: { ...state.currentGuesses, [myRole]: guess } }
-      setGameState(newState)
+      // Update local display immediately so this player sees their own guess
+      setGameState({ ...state, currentGuesses: { ...cg, [myRole]: guess } })
       return
     }
 

@@ -28,8 +28,10 @@ function hint(guess: number, target: number): { label: string; color: string } {
 export function NumberGuessGame({ state, myRole, onGuess }: NumberGuessGameProps) {
   const [input, setInput] = useState('')
   const oppRole: 'p1' | 'p2' = myRole === 'p1' ? 'p2' : 'p1'
-  const myCurrentGuess = state.currentGuesses[myRole]
-  const oppCurrentGuess = state.currentGuesses[oppRole]
+  const cg = state.currentGuesses ?? { p1: null, p2: null }
+  const myCurrentGuess = cg[myRole]
+  const oppCurrentGuess = cg[oppRole]
+  const safeHistory = state.history ?? []
   const hasGuessedThisRound = myCurrentGuess !== null
   const bothGuessedThisRound = myCurrentGuess !== null && oppCurrentGuess !== null
 
@@ -55,7 +57,7 @@ export function NumberGuessGame({ state, myRole, onGuess }: NumberGuessGameProps
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
           className="grid grid-cols-2 gap-2">
           {(['p1', 'p2'] as const).map(role => {
-            const g = state.currentGuesses[role]!
+            const g = cg[role]!
             const h = hint(g, state.target)
             const isMe = role === myRole
             return (
@@ -101,13 +103,13 @@ export function NumberGuessGame({ state, myRole, onGuess }: NumberGuessGameProps
       )}
 
       {/* History */}
-      {state.history.length > 0 && (
+      {safeHistory.length > 0 && (
         <div className="rounded-2xl p-4" style={{ background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(12px)', border: '1.5px solid rgba(255,255,255,0.8)' }}>
           <p className="text-xs font-semibold mb-2 uppercase tracking-widest" style={{ color: 'var(--muted)' }}>Previous Rounds</p>
           <div className="space-y-1 max-h-40 overflow-y-auto">
             <AnimatePresence>
-              {[...state.history].reverse().map((r, i) => {
-                const roundNum = state.history.length - i
+              {[...safeHistory].reverse().map((r, i) => {
+                const roundNum = safeHistory.length - i
                 const myG = r[myRole]
                 const oppG = r[oppRole]
                 const myH = myG !== null ? hint(myG, state.target) : null
