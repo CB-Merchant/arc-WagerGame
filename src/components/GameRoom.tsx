@@ -62,8 +62,10 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
   const [gameState, setGameState] = useState<GameState | null>(null)
   const [localWinner, setLocalWinner] = useState<'me' | 'opponent' | 'draw' | null>(null)
   const [opponentReady, setOpponentReady] = useState(false)
-  // The real on-chain roomId — set after createRoom tx confirms from the RoomCreated event
+  // The real on-chain roomId — set after createRoom tx confirms (P1), or received via Ably (P2)
   const [onChainRoomId, setOnChainRoomId] = useState<string>(roomId)
+  // For matchmaking P2: track whether we received the real roomId from P1 yet
+  const [p1RoomIdReceived, setP1RoomIdReceived] = useState(!isMatchmaking || isPlayer1)
   // Derive PIN from the confirmed on-chain roomId
   const roomPin = (parseInt(onChainRoomId.slice(-6), 16) % 9000 + 1000).toString()
   const ablyChannelRef = useRef<{ publish: (name: string, data: unknown) => Promise<unknown>; unsubscribe: () => void } | null>(null)
@@ -123,6 +125,20 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
   useEffect(() => {
     if (hasAllowance && txPhase === 'idle') setTxPhase('approved')
   }, [hasAllowance, txPhase])
+
+  // Matchmaking P2: listen on the server roomId for P1's room_created broadcast
+  useEffect(() => {
+    if (!isMatchmaking || isPlayer1 || !address || !address.startsWith('0x')) return
+    const client = getAbly(address)
+    const bootstrapCh = client.channels.get(`room:${roomId}`)
+    void bootstrapCh.subscribe('room_created', (msg) => {
+      const { realRoomId } = msg.data as { realRoomId: string }
+      setOnChainRoomId(realRoomId)
+      setP1RoomIdReceived(true)
+    })
+    return () => { bootstrapCh.unsubscribe('room_created') }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Connect to Ably room channel — resubscribe whenever onChainRoomId resolves
   useEffect(() => {
@@ -191,6 +207,11 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
         } catch { /* use original roomId as fallback */ }
       }
       setOnChainRoomId(realRoomId)
+      // For matchmaking: broadcast real roomId to P2 on the bootstrap channel
+      if (isMatchmaking) {
+        const client = getAbly(address ?? '')
+        void client.channels.get(`room:${roomId}`).publish('room_created', { realRoomId })
+      }
       void fetch('/api/create-room', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ gameType, wagerAmount, isPrivate, player1: address, onChainRoomId: realRoomId }),
@@ -434,10 +455,15 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
       {isMatchmaking && txPhase === 'approved' && (
         <StepCard step={2} active>
           <p className="font-semibold" style={{ color: 'var(--ink)' }}>{isPlayer1 ? 'Create Room on-chain' : 'Join Room on-chain'}</p>
-          <p className="text-sm" style={{ color: 'var(--muted)' }}>Lock your {wagerAmount} USDC wager</p>
-          <button onClick={isPlayer1 ? handleCreateRoom : handleJoinRoom} disabled={isCreating || isJoining}
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>
+            {!isPlayer1 && !p1RoomIdReceived ? 'Waiting for opponent to create room...' : `Lock your ${wagerAmount} USDC wager`}
+          </p>
+          <button onClick={isPlayer1 ? handleCreateRoom : handleJoinRoom}
+            disabled={isCreating || isJoining || (!isPlayer1 && !p1RoomIdReceived)}
             className="mt-3 w-full rounded-xl py-3 font-semibold disabled:opacity-50" style={{ background: 'var(--accent)', color: 'white' }}>
-            {(isCreating || isJoining) ? 'Confirm in wallet...' : isPlayer1 ? 'Create & Play' : 'Join & Play'}
+            {(isCreating || isJoining) ? 'Confirm in wallet...'
+              : (!isPlayer1 && !p1RoomIdReceived) ? 'Waiting for opponent...'
+              : isPlayer1 ? 'Create & Play' : 'Join & Play'}
           </button>
         </StepCard>
       )}
