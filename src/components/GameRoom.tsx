@@ -179,6 +179,29 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
     })
     void ch.subscribe('opponent_ready', () => { setOpponentReady(true) })
 
+    // Receive opponent's individual move and merge into local state
+    void ch.subscribe('player_move', (msg) => {
+      const { role, action, ...data } = msg.data as { role: 'p1' | 'p2'; action: string; [k: string]: unknown }
+      setGameState(prev => {
+        if (!prev) return prev
+        if (prev.type === 'TRIVIA' && action === 'answer') {
+          const s = prev
+          const newScores = { ...s.scores }
+          if (data.correct) newScores[role]++
+          return { ...s, answered: { ...s.answered, [role]: true }, scores: newScores }
+        }
+        if (prev.type === 'RPS' && action === 'choice') {
+          const s = prev
+          return { ...s, moves: { ...s.moves, [role]: data.choice as string } }
+        }
+        if (prev.type === 'NUMBER_GUESS' && action === 'guess') {
+          const s = prev
+          return { ...s, guesses: { ...s.guesses, [role]: data.guess as number } }
+        }
+        return prev
+      })
+    })
+
     ablyChannelRef.current = {
       publish: (name: string, data: unknown) => ch.publish(name, data),
       unsubscribe: () => { ch.unsubscribe() },
@@ -260,6 +283,55 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joinHash, joinSuccess])
 
+  // P1 only: after receiving P2's move, check if resolution is needed
+  useEffect(() => {
+    if (!isPlayer1 || !gameState || txPhase !== 'game_active') return
+    if (gameState.type === 'NUMBER_GUESS') {
+      const s = gameState
+      if (s.guesses.p1 !== null && s.guesses.p2 !== null) {
+        const d1 = Math.abs(s.guesses.p1 - s.target)
+        const d2 = Math.abs(s.guesses.p2 - s.target)
+        const w = d1 < d2 ? 'p1' : d2 < d1 ? 'p2' : null
+        resolveWinner(w, s)
+      }
+    }
+    if (gameState.type === 'TRIVIA') {
+      const s = gameState
+      if (s.answered.p1 && s.answered.p2) {
+        const next = s.questionIndex + 1
+        if (next >= TRIVIA_QUESTIONS.length) {
+          const w = s.scores.p1 > s.scores.p2 ? 'p1' : s.scores.p2 > s.scores.p1 ? 'p2' : null
+          resolveWinner(w, s)
+        } else {
+          const reset: TriviaState = { ...s, questionIndex: next, answered: { p1: false, p2: false } }
+          setGameState(reset)
+          void ablyChannelRef.current?.publish('game_state', reset)
+        }
+      }
+    }
+    if (gameState.type === 'RPS') {
+      const s = gameState
+      if (s.moves.p1 && s.moves.p2) {
+        const wins: Record<string, string> = { rock: 'scissors', scissors: 'paper', paper: 'rock' }
+        const newScores = { ...s.scores }
+        if (s.moves.p1 !== s.moves.p2) {
+          if (wins[s.moves.p1] === s.moves.p2) newScores.p1++; else newScores.p2++
+        }
+        const round = s.round + 1
+        const roundState: RPSState = { ...s, scores: newScores }
+        if (round > s.maxRounds || newScores.p1 > 2 || newScores.p2 > 2) {
+          const w = newScores.p1 > newScores.p2 ? 'p1' : newScores.p2 > newScores.p1 ? 'p2' : null
+          resolveWinner(w, roundState)
+        } else {
+          const next: RPSState = { ...roundState, round, moves: { p1: null, p2: null } }
+          setGameState(next)
+          void ablyChannelRef.current?.publish('game_state', next)
+        }
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState])
+
   // Player1: when opponent_ready fires, create canonical state and send to both
   useEffect(() => {
     if (isPlayer1 && opponentReady && txPhase === 'waiting_opponent') {
@@ -302,32 +374,40 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
       args: [onChainRoomId as `0x${string}`], chainId: ARC_TESTNET_CHAIN_ID })
   }, [joinRoomOnChain, onChainRoomId])
 
-  // Handle a game move — update local state and broadcast to opponent
+  // Resolve winner — only called by P1 after full state is known
+  const resolveWinner = useCallback((w: 'p1' | 'p2' | null, finalState: GameState) => {
+    setLocalWinner(w === null ? 'draw' : w === myRole ? 'me' : 'opponent')
+    setTxPhase('game_over')
+    void ablyChannelRef.current?.publish('game_over', { state: finalState, winner: w })
+    if (w) void fetch('/api/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roomId: onChainRoomId, winner: w === 'p1' ? address : opponentAddress }) })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myRole, address, opponentAddress, onChainRoomId])
+
+  // Handle a game move — each player publishes their own move; P1 resolves when both moves in
   const handleGameAction = useCallback((action: string, payload: unknown) => {
     if (!gameState) return
+
     if (gameState.type === 'TRIVIA' && action === 'answer') {
       const state = gameState
+      const correct = (payload as { answerIndex: number }).answerIndex === TRIVIA_QUESTIONS[state.questionIndex].answer
+      // Publish my move — opponent's Ably listener will merge it in via game_state
+      void ablyChannelRef.current?.publish('player_move', { role: myRole, action: 'answer', correct })
       const newAnswered = { ...state.answered, [myRole]: true }
       const newScores = { ...state.scores }
-      const q = TRIVIA_QUESTIONS[state.questionIndex]
-      if ((payload as { answerIndex: number }).answerIndex === q.answer) newScores[myRole]++
+      if (correct) newScores[myRole]++
       const newState: TriviaState = { ...state, answered: newAnswered, scores: newScores }
-
       if (newAnswered.p1 && newAnswered.p2) {
         const next = state.questionIndex + 1
         if (next >= TRIVIA_QUESTIONS.length) {
           const w = newScores.p1 > newScores.p2 ? 'p1' : newScores.p2 > newScores.p1 ? 'p2' : null
-          setLocalWinner(w === null ? 'draw' : w === myRole ? 'me' : 'opponent')
-          setTxPhase('game_over')
-          void ablyChannelRef.current?.publish('game_over', { state: newState, winner: w })
-          // Notify contract resolver
-          if (w) void fetch('/api/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ roomId, winner: w === 'p1' ? address : opponentAddress }) })
-          return
+          setGameState(newState)
+          if (isPlayer1) resolveWinner(w, newState)
+        } else {
+          const reset: TriviaState = { ...newState, questionIndex: next, answered: { p1: false, p2: false } }
+          setGameState(reset)
+          if (isPlayer1) void ablyChannelRef.current?.publish('game_state', reset)
         }
-        const resetState: TriviaState = { ...newState, questionIndex: next, answered: { p1: false, p2: false } }
-        setGameState(resetState)
-        void ablyChannelRef.current?.publish('game_state', resetState)
       } else {
         setGameState(newState)
         void ablyChannelRef.current?.publish('game_state', newState)
@@ -337,7 +417,9 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
 
     if (gameState.type === 'RPS' && action === 'choice') {
       const state = gameState
-      const newMoves = { ...state.moves, [myRole]: (payload as { choice: string }).choice }
+      const choice = (payload as { choice: string }).choice
+      void ablyChannelRef.current?.publish('player_move', { role: myRole, action: 'choice', choice })
+      const newMoves = { ...state.moves, [myRole]: choice }
       const newState: RPSState = { ...state, moves: newMoves }
       if (newMoves.p1 && newMoves.p2) {
         const newScores = { ...state.scores }
@@ -346,18 +428,16 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
           if (wins[newMoves.p1] === newMoves.p2) newScores.p1++; else newScores.p2++
         }
         const round = state.round + 1
+        const roundState: RPSState = { ...newState, scores: newScores }
         if (round > state.maxRounds || newScores.p1 > 2 || newScores.p2 > 2) {
           const w = newScores.p1 > newScores.p2 ? 'p1' : newScores.p2 > newScores.p1 ? 'p2' : null
-          setLocalWinner(w === null ? 'draw' : w === myRole ? 'me' : 'opponent')
-          setTxPhase('game_over')
-          void ablyChannelRef.current?.publish('game_over', { state: { ...newState, scores: newScores }, winner: w })
-          if (w) void fetch('/api/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ roomId, winner: w === 'p1' ? address : opponentAddress }) })
-          return
+          setGameState(roundState)
+          if (isPlayer1) resolveWinner(w, roundState)
+        } else {
+          const next: RPSState = { ...roundState, round, moves: { p1: null, p2: null } }
+          setGameState(next)
+          if (isPlayer1) void ablyChannelRef.current?.publish('game_state', next)
         }
-        const nextState: RPSState = { ...newState, scores: newScores, round, moves: { p1: null, p2: null } }
-        setGameState(nextState)
-        void ablyChannelRef.current?.publish('game_state', nextState)
       } else {
         setGameState(newState)
         void ablyChannelRef.current?.publish('game_state', newState)
@@ -367,21 +447,17 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
 
     if (gameState.type === 'NUMBER_GUESS' && action === 'guess') {
       const state = gameState
-      const newGuesses = { ...state.guesses, [myRole]: (payload as { guess: number }).guess }
+      const guess = (payload as { guess: number }).guess
+      void ablyChannelRef.current?.publish('player_move', { role: myRole, action: 'guess', guess })
+      const newGuesses = { ...state.guesses, [myRole]: guess }
       const newState: NumberState = { ...state, guesses: newGuesses }
-      if (newGuesses.p1 !== null && newGuesses.p2 !== null) {
+      setGameState(newState)
+      if (newGuesses.p1 !== null && newGuesses.p2 !== null && isPlayer1) {
         const d1 = Math.abs(newGuesses.p1 - state.target)
         const d2 = Math.abs(newGuesses.p2 - state.target)
         const w = d1 < d2 ? 'p1' : d2 < d1 ? 'p2' : null
-        setLocalWinner(w === null ? 'draw' : w === myRole ? 'me' : 'opponent')
-        setTxPhase('game_over')
-        void ablyChannelRef.current?.publish('game_over', { state: newState, winner: w })
-        if (w) void fetch('/api/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ roomId, winner: w === 'p1' ? address : opponentAddress }) })
-        return
+        resolveWinner(w, newState)
       }
-      setGameState(newState)
-      void ablyChannelRef.current?.publish('game_state', newState)
       return
     }
 
@@ -399,20 +475,17 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
       }
       const isDraw = !tttWinner && newBoard.every(c => c !== null)
       const newState: TicTacToeState = { ...state, board: newBoard, currentTurn: myRole === 'p1' ? 'p2' : 'p1', winner: tttWinner }
-      if (tttWinner || isDraw) {
-        const w = tttWinner ?? null
-        setLocalWinner(w === null ? 'draw' : w === myRole ? 'me' : 'opponent')
-        setTxPhase('game_over')
-        void ablyChannelRef.current?.publish('game_over', { state: newState, winner: w })
-        if (w) void fetch('/api/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ roomId, winner: w === 'p1' ? address : opponentAddress }) })
-        return
-      }
-      setGameState(newState)
       void ablyChannelRef.current?.publish('game_state', newState)
+      if (tttWinner || isDraw) {
+        const w = tttWinner as 'p1' | 'p2' | null ?? null
+        setGameState(newState)
+        resolveWinner(w, newState)
+      } else {
+        setGameState(newState)
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState, myRole, address, opponentAddress, roomId])
+  }, [gameState, myRole, isPlayer1, resolveWinner])
 
   const copyCode = () => {
     void navigator.clipboard.writeText(roomPin ?? roomId)
