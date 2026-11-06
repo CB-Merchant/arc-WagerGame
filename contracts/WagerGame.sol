@@ -2,11 +2,12 @@
 pragma solidity ^0.8.20;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-contract WagerGame is Ownable, ReentrancyGuard {
+contract WagerGame is Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     enum GameType {
@@ -50,14 +51,25 @@ contract WagerGame is Ownable, ReentrancyGuard {
     event ResolverUpdated(address indexed resolver);
     event FeeBpsUpdated(uint16 feeBps);
     event FeeRecipientUpdated(address indexed feeRecipient);
+    event Withdrawn(address indexed recipient, uint256 amount);
 
     uint16 public constant MAX_FEE_BPS = 1_000;
     uint256 public constant GAME_TIMEOUT = 2 hours;
+    uint256 public constant RESOLVER_CHANGE_DELAY = 48 hours;
+    uint256 public constant FEE_CHANGE_DELAY = 24 hours;
 
     IERC20 public immutable usdcToken;
     address public resolver;
+    address public pendingResolver;
+    uint256 public resolverChangeAfter;
+
     address public feeRecipient;
     uint16 public feeBps;
+    uint16 public pendingFeeBps;
+    uint256 public feeBpsChangeAfter;
+    bool public pendingFeeSet;
+
+    mapping(address => uint256) public pendingWithdrawals;
 
     mapping(bytes32 => Room) public rooms;
     bytes32[] public openPublicRoomIds;
@@ -156,9 +168,9 @@ contract WagerGame is Ownable, ReentrancyGuard {
         room.status = RoomStatus.FINISHED;
         room.winner = winner;
 
-        usdcToken.safeTransfer(winner, payout);
+        pendingWithdrawals[winner] += payout;
         if (platformFee > 0) {
-            usdcToken.safeTransfer(feeRecipient, platformFee);
+            pendingWithdrawals[feeRecipient] += platformFee;
         }
 
         emit GameResolved(roomId, winner, payout);
@@ -177,7 +189,7 @@ contract WagerGame is Ownable, ReentrancyGuard {
             _removeOpenPublicRoom(roomId);
         }
 
-        usdcToken.safeTransfer(room.player1, room.wagerAmount);
+        pendingWithdrawals[room.player1] += room.wagerAmount;
 
         emit RoomCancelled(roomId);
     }
@@ -192,10 +204,20 @@ contract WagerGame is Ownable, ReentrancyGuard {
         room.status = RoomStatus.CANCELLED;
 
         uint256 refundEach = room.wagerAmount;
-        usdcToken.safeTransfer(room.player1, refundEach);
-        usdcToken.safeTransfer(room.player2, refundEach);
+        pendingWithdrawals[room.player1] += refundEach;
+        pendingWithdrawals[room.player2] += refundEach;
 
         emit RoomCancelled(roomId);
+    }
+
+    function withdraw() external nonReentrant {
+        uint256 amount = pendingWithdrawals[msg.sender];
+        require(amount > 0, "WagerGame: nothing to withdraw");
+
+        pendingWithdrawals[msg.sender] = 0;
+        usdcToken.safeTransfer(msg.sender, amount);
+
+        emit Withdrawn(msg.sender, amount);
     }
 
     function getRoom(bytes32 roomId) external view returns (Room memory) {
@@ -208,14 +230,37 @@ contract WagerGame is Ownable, ReentrancyGuard {
 
     function setResolver(address newResolver) external onlyOwner {
         require(newResolver != address(0), "WagerGame: resolver is zero address");
-        resolver = newResolver;
-        emit ResolverUpdated(newResolver);
+        pendingResolver = newResolver;
+        resolverChangeAfter = block.timestamp + RESOLVER_CHANGE_DELAY;
+    }
+
+    function applyResolver() external onlyOwner {
+        require(pendingResolver != address(0), "WagerGame: no pending resolver");
+        require(block.timestamp >= resolverChangeAfter, "WagerGame: resolver change not ready");
+
+        resolver = pendingResolver;
+        pendingResolver = address(0);
+        resolverChangeAfter = 0;
+
+        emit ResolverUpdated(resolver);
     }
 
     function setFeeBps(uint16 newFeeBps) external onlyOwner {
         require(newFeeBps <= MAX_FEE_BPS, "WagerGame: fee too high");
-        feeBps = newFeeBps;
-        emit FeeBpsUpdated(newFeeBps);
+        pendingFeeBps = newFeeBps;
+        feeBpsChangeAfter = block.timestamp + FEE_CHANGE_DELAY;
+        pendingFeeSet = true;
+    }
+
+    function applyFeeBps() external onlyOwner {
+        require(pendingFeeSet, "WagerGame: no pending fee change");
+        require(block.timestamp >= feeBpsChangeAfter, "WagerGame: fee change not ready");
+
+        feeBps = pendingFeeBps;
+        feeBpsChangeAfter = 0;
+        pendingFeeSet = false;
+
+        emit FeeBpsUpdated(feeBps);
     }
 
     function setFeeRecipient(address newFeeRecipient) external onlyOwner {

@@ -2,13 +2,14 @@
 
 > Built with Arc Studio - money-powered apps in minutes
 
-USDC PvP wager game on Arc Testnet. Players choose a game (Trivia, RPS, Number Duel, Tic-Tac-Toe), lock a USDC wager in the smart contract, play, and the winner receives the combined pot minus a 2% platform fee.
+USDC PvP wager game on Arc Mainnet. Players choose a game (Trivia, RPS, Number Duel, Tic-Tac-Toe), lock a USDC wager in the smart contract, play, and the winner receives the combined pot minus a 2% platform fee.
 
 ## Deployed Contracts
 
 | Contract | Address | Chain | Explorer |
 |---|---|---|---|
-| WagerGame | 0xcdd8440b4de140078ce5bdcd0569b73a93627519 | Arc Testnet | https://explorer.testnet.arc.io/address/0xcdd8440b4de140078ce5bdcd0569b73a93627519 |
+| WagerGame (mainnet) | 0xB81bd00A7803340FCDc09E67e5c0220d79cA8c7a | Arc Mainnet (chain 5042) | https://explorer.arc.io/address/0xB81bd00A7803340FCDc09E67e5c0220d79cA8c7a |
+| WagerGame (testnet) | 0xcdd8440b4de140078ce5bdcd0569b73a93627519 | Arc Testnet | https://explorer.testnet.arc.io/address/0xcdd8440b4de140078ce5bdcd0569b73a93627519 |
 
 After deploying, set `VITE_WAGER_CONTRACT=<address>` in `.env`.
 

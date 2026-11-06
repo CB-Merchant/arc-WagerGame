@@ -8,24 +8,24 @@ import { defineChain } from 'viem'
 import { getDefaultConfig } from 'connectkit'
 import { registerChain } from './tracing'
 
-const ARC_TESTNET_RPC = 'https://rpc.testnet.arc.io'
+const ARC_MAINNET_RPC = 'https://rpc.mainnet.arc.io' // arc-studio-allow-onchain-literal
 
-export const arcTestnet = defineChain({
-  id: 5042002,
-  name: 'Arc Testnet',
+export const arcMainnet = defineChain({
+  id: 5042,
+  name: 'Arc',
   nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
-  rpcUrls: { default: { http: [ARC_TESTNET_RPC] } },
-  blockExplorers: { default: { name: 'Arc Explorer', url: 'https://explorer.testnet.arc.io' } },
-  testnet: true,
+  rpcUrls: { default: { http: [ARC_MAINNET_RPC] } },
+  blockExplorers: { default: { name: 'Arc Explorer', url: 'https://explorer.arc.io' } },
+  testnet: false,
 })
 
-registerChain(arcTestnet.id, ARC_TESTNET_RPC)
+registerChain(arcMainnet.id, ARC_MAINNET_RPC)
 
 export const config = createConfig(
   getDefaultConfig({
-    chains: [arcTestnet],
+    chains: [arcMainnet],
     transports: {
-      [arcTestnet.id]: http(ARC_TESTNET_RPC),
+      [arcMainnet.id]: http(ARC_MAINNET_RPC),
     },
     walletConnectProjectId: (import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined) ?? '',
     appName: 'Arc WagerGame',

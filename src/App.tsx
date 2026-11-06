@@ -12,7 +12,7 @@ import { Logo } from './components/Logo'
 import { useOnlinePlayersAbly } from './hooks/useAblyGame'
 import type { GameType } from './hooks/useGameServer'
 
-const ARC_TESTNET_CHAIN_ID = 5042002
+const ARC_CHAIN_ID = 5042
 
 // Encode gameType to bytes32 salt using random bytes for room uniqueness
 function generateRoomId(address: string, _gameType: GameType): string {
@@ -148,16 +148,16 @@ export default function App() {
         </motion.div>
 
         {/* Chain warning */}
-        {isConnected && chainId !== ARC_TESTNET_CHAIN_ID && (
+        {isConnected && chainId !== ARC_CHAIN_ID && (
           <motion.div
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             className="mb-4 flex items-center justify-between rounded-2xl px-4 py-3"
             style={{ background: '#fef3c7', border: '1.5px solid #f59e0b' }}
           >
-            <p className="text-sm font-medium text-amber-800">Switch to Arc Testnet to play</p>
+            <p className="text-sm font-medium text-amber-800">Switch to Arc to play</p>
             <button
-              onClick={() => switchChain({ chainId: ARC_TESTNET_CHAIN_ID })}
+              onClick={() => switchChain({ chainId: ARC_CHAIN_ID })}
               className="rounded-lg px-3 py-1.5 text-xs font-semibold"
               style={{ background: '#f59e0b', color: 'white' }}
             >
@@ -175,7 +175,7 @@ export default function App() {
             style={{ background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(16px)', border: '1.5px solid rgba(255,255,255,0.8)' }}
           >
             <p className="mb-1 font-semibold" style={{ color: 'var(--ink)' }}>Connect your wallet to play</p>
-            <p className="text-sm" style={{ color: 'var(--muted)' }}>Wager Arc Testnet USDC against other players</p>
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>Wager real USDC against other players on Arc</p>
           </motion.div>
         )}
 

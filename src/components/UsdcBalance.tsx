@@ -2,7 +2,7 @@ import { useReadContract } from 'wagmi'
 import { getUsdc } from '@/onchain-facts'
 import { formatUsdc } from '@/onchain-money'
 
-const ARC_TESTNET_CHAIN_ID = 5042002
+const ARC_CHAIN_ID = 5042
 
 const ERC20_ABI = [
   {
@@ -20,15 +20,15 @@ interface UsdcBalanceProps {
 }
 
 export function UsdcBalance({ address, chainId }: UsdcBalanceProps) {
-  const usdc = getUsdc(ARC_TESTNET_CHAIN_ID)
-  const isRightChain = chainId === ARC_TESTNET_CHAIN_ID
+  const usdc = getUsdc(ARC_CHAIN_ID)
+  const isRightChain = chainId === ARC_CHAIN_ID
 
   const { data: rawBalance, isLoading } = useReadContract({
     address: usdc?.address as `0x${string}` | undefined,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: [address as `0x${string}`],
-    chainId: ARC_TESTNET_CHAIN_ID,
+    chainId: ARC_CHAIN_ID,
     query: {
       // Enable even on wrong chain — Arc RPC works regardless
       enabled: !!usdc && !!address,

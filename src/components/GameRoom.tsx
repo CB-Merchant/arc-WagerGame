@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, usePublicClient } from 'wagmi'
 import { erc20Abi, parseUnits, pad } from 'viem'
 import { getUsdc, buildTxExplorerUrl } from '@/onchain-facts'
+import { formatUsdc } from '@/onchain-money'
 import { TriviaGame } from './games/TriviaGame'
 import { RPSGame } from './games/RPSGame'
 import { NumberGuessGame } from './games/NumberGuessGame'
@@ -12,8 +13,8 @@ import type { GameType } from '../hooks/useGameServer'
 import { WAGER_GAME_ABI } from '../abi/WagerGame'
 import { getAbly } from '../hooks/useAblyGame'
 
-const ARC_TESTNET_CHAIN_ID = 5042002
-const USDC_FACT = getUsdc(ARC_TESTNET_CHAIN_ID)!
+const ARC_CHAIN_ID = 5042
+const USDC_FACT = getUsdc(ARC_CHAIN_ID)!
 const USDC_ADDRESS = USDC_FACT.address as `0x${string}`
 const USDC_DECIMALS = USDC_FACT.decimals
 const CONTRACT_ADDRESS = (import.meta.env.VITE_WAGER_CONTRACT ?? '') as `0x${string}`
@@ -90,12 +91,12 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
   const wagerFloat = Math.max(0, parseFloat(wagerAmount) || 0)
   const wagerBigInt = parseUnits(wagerFloat.toFixed(6), USDC_DECIMALS)
   const myRole: 'p1' | 'p2' = isPlayer1 ? 'p1' : 'p2'
-  const publicClient = usePublicClient({ chainId: ARC_TESTNET_CHAIN_ID })
+  const publicClient = usePublicClient({ chainId: ARC_CHAIN_ID })
 
   // Allowance check
   const { data: allowance } = useReadContract({
     address: USDC_ADDRESS, abi: erc20Abi, functionName: 'allowance',
-    args: [address as `0x${string}`, CONTRACT_ADDRESS], chainId: ARC_TESTNET_CHAIN_ID,
+    args: [address as `0x${string}`, CONTRACT_ADDRESS], chainId: ARC_CHAIN_ID,
   })
   const hasAllowance = allowance !== undefined && allowance >= wagerBigInt
 
@@ -106,6 +107,13 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
   const { isSuccess: createSuccess, data: createReceipt } = useWaitForTransactionReceipt({ hash: createHash })
   const { writeContract: joinRoomOnChain, data: joinHash, isPending: isJoining, error: joinError } = useWriteContract()
   const { isSuccess: joinSuccess } = useWaitForTransactionReceipt({ hash: joinHash })
+  const { writeContract: withdrawFunds, data: withdrawHash, isPending: isWithdrawing } = useWriteContract()
+  const { isSuccess: withdrawSuccess } = useWaitForTransactionReceipt({ hash: withdrawHash })
+  const { data: pendingAmount, refetch: refetchPending } = useReadContract({
+    address: CONTRACT_ADDRESS, abi: WAGER_GAME_ABI, functionName: 'pendingWithdrawals',
+    args: [address as `0x${string}`], chainId: ARC_CHAIN_ID,
+    query: { enabled: txPhase === 'game_over', refetchInterval: 3000 },
+  })
 
   // Surface wallet errors — only show once per error (not on mount from stale wagmi cache)
   const shownApproveError = useRef<string | null>(null)
@@ -132,6 +140,14 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
       setTxPhase('approved')
     }
   }, [joinError])
+
+  // Toast on successful withdrawal
+  useEffect(() => {
+    if (withdrawSuccess) {
+      toast.success('Winnings claimed!')
+      void refetchPending()
+    }
+  }, [withdrawSuccess, refetchPending])
 
   const processedApprove = useRef<string | undefined>(undefined)
   const processedCreate = useRef<string | undefined>(undefined)
@@ -380,7 +396,7 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
     setTxPhase('approving')
     // Passing chainId triggers wagmi to auto-prompt a chain switch in MetaMask if needed
     approveUsdc({ address: USDC_ADDRESS, abi: erc20Abi, functionName: 'approve',
-      args: [CONTRACT_ADDRESS, wagerBigInt], chainId: ARC_TESTNET_CHAIN_ID })
+      args: [CONTRACT_ADDRESS, wagerBigInt], chainId: ARC_CHAIN_ID })
   }, [approveUsdc, wagerBigInt])
 
   const handleCreateRoom = useCallback(() => {
@@ -390,14 +406,19 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
     setTxPhase('creating_room')
     createRoom({ address: CONTRACT_ADDRESS, abi: WAGER_GAME_ABI, functionName: 'createRoom',
       args: [gameTypeIndex, wagerBigInt, isPrivate, saltBytes],
-      chainId: ARC_TESTNET_CHAIN_ID })
+      chainId: ARC_CHAIN_ID })
   }, [createRoom, roomId, gameType, wagerBigInt, isPrivate])
 
   const handleJoinRoom = useCallback(() => {
     // Use onChainRoomId — this is the exact roomId the contract stored (resolved from server/Ably)
     joinRoomOnChain({ address: CONTRACT_ADDRESS, abi: WAGER_GAME_ABI, functionName: 'joinRoom',
-      args: [onChainRoomId as `0x${string}`], chainId: ARC_TESTNET_CHAIN_ID })
+      args: [onChainRoomId as `0x${string}`], chainId: ARC_CHAIN_ID })
   }, [joinRoomOnChain, onChainRoomId])
+
+  const handleWithdraw = useCallback(() => {
+    withdrawFunds({ address: CONTRACT_ADDRESS, abi: WAGER_GAME_ABI, functionName: 'withdraw',
+      chainId: ARC_CHAIN_ID })
+  }, [withdrawFunds])
 
   // Resolve winner — only called by P1 after full state is known
   const resolveWinner = useCallback((w: 'p1' | 'p2' | null, finalState: GameState) => {
@@ -693,10 +714,25 @@ export function GameRoom({ address, roomId, gameType, wagerAmount, isPlayer1, op
               {localWinner === 'me' ? '🏆 You Won!' : localWinner === 'draw' ? 'Draw!' : 'You Lost'}
             </p>
             {localWinner === 'me' && <p className="text-lg font-semibold opacity-90">+{(parseFloat(wagerAmount) * 2 * 0.98).toFixed(2)} USDC</p>}
-            {localWinner === 'draw' && <p className="opacity-75">Both players refunded</p>}
+            {localWinner === 'draw' && <p className="opacity-75">Draw: stakes stay locked until the 2 hour timeout, then each player can reclaim</p>}
           </div>
+
+          {/* Claim winnings / refund — shown when pendingWithdrawals > 0 */}
+          {pendingAmount !== undefined && pendingAmount > 0n && !withdrawSuccess && (
+            <button onClick={handleWithdraw} disabled={isWithdrawing}
+              className="w-full rounded-2xl py-4 font-bold disabled:opacity-50"
+              style={{ background: 'var(--success)', color: 'white' }}>
+              {isWithdrawing ? 'Confirm in wallet...' : `Claim ${formatUsdc(pendingAmount)} USDC`}
+            </button>
+          )}
+          {withdrawSuccess && (
+            <div className="rounded-2xl py-3 text-center text-sm font-semibold" style={{ background: 'var(--surface-muted)', color: 'var(--success)' }}>
+              Winnings sent to your wallet
+            </div>
+          )}
+
           {createHash && (
-            <a href={buildTxExplorerUrl(ARC_TESTNET_CHAIN_ID, createHash)} target="_blank" rel="noopener noreferrer"
+            <a href={buildTxExplorerUrl(ARC_CHAIN_ID, createHash)} target="_blank" rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 text-sm" style={{ color: 'var(--muted)' }}>
               <ExternalLink size={14} /> View on explorer
             </a>
